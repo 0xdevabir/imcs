@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { API_URL } from '@/lib/config';
 
 type LoginResponse = {
@@ -14,6 +15,7 @@ type ProfileResponse = {
 };
 
 export default function LoginPage() {
+  const router = useRouter();
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('Admin123!');
   const [status, setStatus] = useState('Not authenticated');
@@ -43,6 +45,7 @@ export default function LoginPage() {
     }
 
     setStatus('Authenticated. Token is stored in a secure httpOnly cookie.');
+    router.push('/chat');
   };
 
   const fetchProfile = async () => {

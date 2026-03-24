@@ -1,0 +1,50 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReceiptStatus {
+  DELIVERED
+  READ
+}
+
+model ChatRoom {
+  id        String        @id @default(cuid())
+  key       String        @unique
+  name      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  roomId         String
+  senderUserId   Int
+  senderUsername String
+  content        String
+  createdAt      DateTime         @default(now())
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  room           ChatRoom         @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  receipts       MessageReceipt[]
+
+  @@index([roomId, createdAt])
+}
+
+model MessageReceipt {
+  id         String        @id @default(cuid())
+  messageId  String
+  userId     Int
+  username   String
+  status     ReceiptStatus
+  createdAt  DateTime      @default(now())
+  message    ChatMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, status])
+  @@index([messageId])
+}

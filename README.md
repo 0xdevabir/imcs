@@ -3,7 +3,7 @@
 This workspace contains a basic full-stack starter with:
 
 - Frontend: Next.js (App Router) + Tailwind CSS
-- Backend: NestJS + JWT authentication + Socket.IO
+- Backend: NestJS + JWT authentication + Socket.IO + Prisma/PostgreSQL
 
 ## Project Structure
 
@@ -63,7 +63,22 @@ cd backend
 cp .env.example .env
 ```
 
-3. Run apps in separate terminals:
+3. Start PostgreSQL (required for message storage):
+
+```bash
+cd ..
+docker compose up -d
+```
+
+4. Generate Prisma client and run migrations:
+
+```bash
+cd backend
+npm run prisma:generate
+npm run prisma:migrate:dev
+```
+
+5. Run apps in separate terminals:
 
 ```bash
 cd backend && npm run start:dev
@@ -97,6 +112,26 @@ Frontend runs on `http://localhost:3000` and backend on `http://localhost:3001`.
 
 - Socket server is attached to NestJS backend.
 - Client can connect with JWT token using `auth: { token }`.
-- Example event:
-  - emit `ping` with `{ message: "hello" }`
-  - server responds with `pong`
+
+### Realtime Messaging Events
+
+- `join_room`
+  - payload: `{ roomKey: string, roomName?: string }`
+  - server emits: `room_joined` with room metadata and message history.
+- `send_message`
+  - payload: `{ roomKey: string, content: string }`
+  - server emits: `receive_message` to all clients in the room.
+- `typing`
+  - payload: `{ roomKey: string, isTyping: boolean }`
+  - server forwards typing indicator to other room members.
+- `read_receipt`
+  - payload: `{ messageId: string, status: 'DELIVERED' | 'READ' }`
+  - server persists receipt and broadcasts the update.
+
+### Frontend Pages
+
+- `/login`: sign in and create secure auth cookie.
+- `/chat`: room-based realtime group messaging UI with:
+  - instant send/receive
+  - typing indicator
+  - delivered/read status labels

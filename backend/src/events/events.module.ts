@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { EventsGateway } from './events.gateway';
+import { EventsService } from './events.service';
 
 @Module({
   imports: [
@@ -8,6 +9,6 @@ import { EventsGateway } from './events.gateway';
       secret: process.env.JWT_SECRET ?? 'dev_secret_change_me',
     }),
   ],
-  providers: [EventsGateway],
+  providers: [EventsGateway, EventsService],
 })
 export class EventsModule {}

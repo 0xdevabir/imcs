@@ -72,11 +72,26 @@ cd frontend && npm run dev
 
 Frontend runs on `http://localhost:3000` and backend on `http://localhost:3001`.
 
-## Auth Flow
+## Secure Auth Flow
 
-- `POST /auth/login` with JSON body `{ "username": "admin", "password": "admin123" }`
-- Returns `{ access_token: "..." }`
-- Use token in `Authorization: Bearer <token>` for protected routes and Socket.IO auth.
+- Seed admin user is loaded from environment:
+  - `INIT_ADMIN_USERNAME` (default: `admin`)
+  - `INIT_ADMIN_PASSWORD` (default: `Admin123!`)
+- `POST /auth/login` with `{ "username": "admin", "password": "Admin123!" }`
+- Returns `{ "access_token": "..." }` and also sets an `httpOnly` cookie.
+- Protected routes can use either:
+  - `Authorization: Bearer <token>`
+  - Auth cookie (sent automatically by browser)
+
+### Admin User Management
+
+- `POST /users` (admin only)
+  - Body: `{ "username": "new_user", "password": "StrongPass123", "role": "user" }`
+- `GET /users` (admin only)
+
+### Protected Route Example
+
+- `GET /auth/profile` requires valid JWT via header or cookie.
 
 ## Socket.IO
 

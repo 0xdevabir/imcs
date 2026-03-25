@@ -4,6 +4,14 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
+function resolveSameSite() {
+  const sameSite = process.env.AUTH_COOKIE_SAME_SITE?.toLowerCase();
+  if (sameSite === 'strict' || sameSite === 'none' || sameSite === 'lax') {
+    return sameSite;
+  }
+  return 'lax';
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -12,20 +20,15 @@ export class AuthController {
   async login(@Body() body: LoginDto, @Res({ passthrough: true }) response: Response) {
     const loginResult = await this.authService.login(body.username, body.password);
 
-    response.cookie(process.env.AUTH_COOKIE_NAME ?? 'imcs_auth', loginResult.access_token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 1000,
-      path: '/',
-    });
-
+    // frontend sets the cookie; backend returns token in response only.
     return loginResult;
   }
 
   @Post('logout')
   logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie(process.env.AUTH_COOKIE_NAME ?? 'imcs_auth', { path: '/' });
+    const sameSite = resolveSameSite();
+    const secure = process.env.AUTH_COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production' || sameSite === 'none';
+    response.clearCookie(process.env.AUTH_COOKIE_NAME ?? 'imcs_auth', { path: '/', sameSite, secure });
     return { success: true };
   }
 

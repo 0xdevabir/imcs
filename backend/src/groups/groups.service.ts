@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
+import { EventsGateway } from '../events/events.gateway';
+import { Server } from 'socket.io';
 
 type RequestUser = {
   userId: number;
@@ -23,11 +25,21 @@ type ParticipantView = {
   role: 'owner' | 'admin' | 'member';
 };
 
+type GroupSummary = {
+  key: string;
+  name: string | null;
+  ownerUserId: number | null;
+  ownerUsername: string | null;
+  participantCount: number;
+  participants: { userId: number; username: string }[];
+};
+
 @Injectable()
 export class GroupsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly usersService: UsersService,
+    private readonly eventsGateway: EventsGateway,
   ) {}
 
   private normalizeKey(input: string): string {
@@ -207,13 +219,35 @@ export class GroupsService {
       });
     });
 
-    return {
+    const groupPayload = {
       key: created.key,
       name: created.name,
       ownerUserId: created.ownerUserId,
       ownerUsername: created.ownerUsername,
       participants: created.members.map((member) => this.toParticipantView(created, member)),
     };
+
+    this.emitGroupUpdate('group_created', groupPayload, created.members.map(m => m.userId));
+
+    return groupPayload;
+  }
+
+  private emitGroupUpdate(event: string, data: unknown, userIds: number[]) {
+    const server = this.eventsGateway.server;
+    if (!server) return;
+
+    for (const userId of userIds) {
+      const socketIds = this.getSocketIdsForUser(userId);
+      for (const socketId of socketIds) {
+        server.to(socketId).emit(event, data);
+      }
+    }
+  }
+
+  private getSocketIdsForUser(userId: number): string[] {
+    const socketsByUserId = (this.eventsGateway as unknown as { socketsByUserId: Map<number, Set<string>> }).socketsByUserId;
+    const socketIds = socketsByUserId?.get(userId);
+    return socketIds ? [...socketIds] : [];
   }
 
   async listGroupsForUser(user: RequestUser) {
@@ -286,7 +320,16 @@ export class GroupsService {
       },
     });
 
-    return this.getParticipants(group.key, input.actor);
+    const result = await this.getParticipants(group.key, input.actor);
+    
+    const allMemberIds = [...group.members.map(m => m.userId), user.userId];
+    this.emitGroupUpdate('group_member_added', { 
+      key: group.key, 
+      name: group.name,
+      addedUser: user.username 
+    }, allMemberIds);
+
+    return result;
   }
 
   async removeUserFromGroup(input: { roomKey: string; username: string; actor: RequestUser }) {
@@ -308,6 +351,13 @@ export class GroupsService {
       },
     });
 
-    return this.getParticipants(group.key, input.actor);
+    const result = await this.getParticipants(group.key, input.actor);
+
+    this.emitGroupUpdate('group_member_removed', { 
+      key: group.key, 
+      removedUser: user.username 
+    }, group.members.map(m => m.userId));
+
+    return result;
   }
 }

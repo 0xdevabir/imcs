@@ -88,6 +88,25 @@ export class EventsService {
     });
   }
 
+  async getRoomParticipantUsernames(roomKey: string) {
+    const room = await this.prisma.chatRoom.findUnique({
+      where: { key: roomKey },
+      include: {
+        members: {
+          select: {
+            username: true,
+          },
+        },
+      },
+    });
+
+    if (!room) {
+      return [];
+    }
+
+    return room.members.map((member) => member.username);
+  }
+
   async ensureRoomMembership(input: { roomKey: string; roomName?: string; user: Sender }) {
     const room = await this.ensureRoom(input.roomKey, input.roomName);
 

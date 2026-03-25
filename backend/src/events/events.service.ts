@@ -7,9 +7,67 @@ type Sender = {
   username: string;
 };
 
+type ReplyPreview = {
+  id: string;
+  senderUsername: string;
+  content: string;
+};
+
+type MessageReactionView = {
+  id: string;
+  messageId: string;
+  userId: number;
+  username: string;
+  emoji: string;
+  createdAt: Date;
+};
+
 @Injectable()
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private mapMessage(
+    row: {
+      id: string;
+      content: string;
+      room: { key: string };
+      senderUserId: number;
+      senderUsername: string;
+      createdAt: Date;
+      deliveredAt: Date | null;
+      readAt: Date | null;
+      receipts: Array<{
+        id: string;
+        messageId: string;
+        userId: number;
+        username: string;
+        status: ReceiptStatus;
+        createdAt: Date;
+      }>;
+      reactions: MessageReactionView[];
+      replyTo: null | {
+        id: string;
+        senderUsername: string;
+        content: string;
+      };
+    },
+  ) {
+    return {
+      id: row.id,
+      roomKey: row.room.key,
+      sender: {
+        userId: row.senderUserId,
+        username: row.senderUsername,
+      },
+      content: row.content,
+      createdAt: row.createdAt,
+      deliveredAt: row.deliveredAt,
+      readAt: row.readAt,
+      receipts: row.receipts,
+      reactions: row.reactions,
+      replyTo: row.replyTo,
+    };
+  }
 
   async ensureRoom(roomKey: string, roomName?: string) {
     return this.prisma.chatRoom.upsert({
@@ -24,6 +82,58 @@ export class EventsService {
     });
   }
 
+  async getRoomByKey(roomKey: string) {
+    return this.prisma.chatRoom.findUnique({
+      where: { key: roomKey },
+    });
+  }
+
+  async ensureRoomMembership(input: { roomKey: string; roomName?: string; user: Sender }) {
+    const room = await this.ensureRoom(input.roomKey, input.roomName);
+
+    await this.prisma.chatRoomMember.upsert({
+      where: {
+        roomId_userId: {
+          roomId: room.id,
+          userId: input.user.userId,
+        },
+      },
+      update: {
+        username: input.user.username,
+      },
+      create: {
+        roomId: room.id,
+        userId: input.user.userId,
+        username: input.user.username,
+      },
+    });
+
+    return room;
+  }
+
+  async userHasRoomAccess(input: { roomKey: string; userId: number }) {
+    const room = await this.prisma.chatRoom.findUnique({
+      where: { key: input.roomKey },
+      select: { id: true },
+    });
+
+    if (!room) {
+      return false;
+    }
+
+    const member = await this.prisma.chatRoomMember.findUnique({
+      where: {
+        roomId_userId: {
+          roomId: room.id,
+          userId: input.userId,
+        },
+      },
+      select: { id: true },
+    });
+
+    return Boolean(member);
+  }
+
   async getRecentMessages(roomKey: string, limit = 50) {
     const room = await this.prisma.chatRoom.findUnique({ where: { key: roomKey } });
     if (!room) {
@@ -34,36 +144,62 @@ export class EventsService {
       where: { roomId: room.id },
       include: {
         receipts: true,
+        reactions: true,
+        replyTo: {
+          select: {
+            id: true,
+            senderUsername: true,
+            content: true,
+          },
+        },
+        room: {
+          select: {
+            key: true,
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
       take: limit,
     });
 
-    return rows.map((row) => ({
-      id: row.id,
-      roomKey,
-      sender: {
-        userId: row.senderUserId,
-        username: row.senderUsername,
-      },
-      content: row.content,
-      createdAt: row.createdAt,
-      deliveredAt: row.deliveredAt,
-      readAt: row.readAt,
-      receipts: row.receipts,
-    }));
+    return rows.map((row) => this.mapMessage(row));
   }
 
-  async createMessage(input: { roomKey: string; content: string; sender: Sender }) {
-    const room = await this.ensureRoom(input.roomKey);
+  async createMessage(input: {
+    roomKey: string;
+    content: string;
+    sender: Sender;
+    replyToMessageId?: string;
+  }) {
+    const room = await this.ensureRoomMembership({
+      roomKey: input.roomKey,
+      user: input.sender,
+    });
 
     const created = await this.prisma.$transaction(async (tx) => {
+      let replyTo: ReplyPreview | null = null;
+      if (input.replyToMessageId) {
+        const referenced = await tx.chatMessage.findFirst({
+          where: {
+            id: input.replyToMessageId,
+            roomId: room.id,
+          },
+          select: {
+            id: true,
+            senderUsername: true,
+            content: true,
+          },
+        });
+        replyTo = referenced;
+      }
+
       const message = await tx.chatMessage.create({
         data: {
           roomId: room.id,
           senderUserId: input.sender.userId,
           senderUsername: input.sender.username,
           content: input.content,
+          replyToMessageId: replyTo?.id,
         },
       });
 
@@ -94,23 +230,26 @@ export class EventsService {
 
       return tx.chatMessage.findUniqueOrThrow({
         where: { id: message.id },
-        include: { receipts: true },
+        include: {
+          receipts: true,
+          reactions: true,
+          replyTo: {
+            select: {
+              id: true,
+              senderUsername: true,
+              content: true,
+            },
+          },
+          room: {
+            select: {
+              key: true,
+            },
+          },
+        },
       });
     });
 
-    return {
-      id: created.id,
-      roomKey: input.roomKey,
-      sender: {
-        userId: created.senderUserId,
-        username: created.senderUsername,
-      },
-      content: created.content,
-      createdAt: created.createdAt,
-      deliveredAt: created.deliveredAt,
-      readAt: created.readAt,
-      receipts: created.receipts,
-    };
+    return this.mapMessage(created);
   }
 
   async acknowledgeReceipt(input: {
@@ -175,6 +314,72 @@ export class EventsService {
       username: receipt.username,
       status: receipt.status,
       createdAt: receipt.createdAt,
+    };
+  }
+
+  async toggleReaction(input: { messageId: string; emoji: string; user: Sender }) {
+    const message = await this.prisma.chatMessage.findUnique({
+      where: { id: input.messageId },
+      include: {
+        room: {
+          select: {
+            key: true,
+            id: true,
+          },
+        },
+      },
+    });
+
+    if (!message) {
+      return null;
+    }
+
+    const membership = await this.prisma.chatRoomMember.findUnique({
+      where: {
+        roomId_userId: {
+          roomId: message.room.id,
+          userId: input.user.userId,
+        },
+      },
+      select: { id: true },
+    });
+
+    if (!membership) {
+      return null;
+    }
+
+    const existing = await this.prisma.messageReaction.findUnique({
+      where: {
+        messageId_userId_emoji: {
+          messageId: input.messageId,
+          userId: input.user.userId,
+          emoji: input.emoji,
+        },
+      },
+    });
+
+    if (existing) {
+      await this.prisma.messageReaction.delete({ where: { id: existing.id } });
+    } else {
+      await this.prisma.messageReaction.create({
+        data: {
+          messageId: input.messageId,
+          userId: input.user.userId,
+          username: input.user.username,
+          emoji: input.emoji,
+        },
+      });
+    }
+
+    const reactions = await this.prisma.messageReaction.findMany({
+      where: { messageId: input.messageId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    return {
+      roomKey: message.room.key,
+      messageId: input.messageId,
+      reactions,
     };
   }
 }

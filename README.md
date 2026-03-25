@@ -128,6 +128,28 @@ Frontend runs on `http://localhost:3000` and backend on `http://localhost:3001`.
   - payload: `{ messageId: string, status: 'DELIVERED' | 'READ' }`
   - server persists receipt and broadcasts the update.
 
+### File Uploads (Local Storage)
+
+- Endpoint: `POST /files/upload` (authenticated)
+- Request: `multipart/form-data` with `file` field
+- Backend uses Multer with local disk storage (`UPLOAD_DIR`, default `storage/uploads`)
+- Basic validation:
+  - Max size: `MAX_UPLOAD_SIZE_MB` (default `10`)
+  - Allowed types: `image/*`, `video/*`, `application/pdf`
+- Response includes public file URL under `/files/<filename>`
+
+Example response:
+
+```json
+{
+  "fileName": "1710000000000-a1b2c3d4.png",
+  "originalName": "photo.png",
+  "mimeType": "image/png",
+  "size": 12345,
+  "url": "http://localhost:3001/files/1710000000000-a1b2c3d4.png"
+}
+```
+
 ### Frontend Pages
 
 - `/login`: sign in and create secure auth cookie.
@@ -135,3 +157,4 @@ Frontend runs on `http://localhost:3000` and backend on `http://localhost:3001`.
   - instant send/receive
   - typing indicator
   - delivered/read status labels
+  - upload button and inline file previews (image/pdf/video)

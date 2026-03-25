@@ -2,6 +2,7 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayDisconnect,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
@@ -14,9 +15,16 @@ import { EventsService } from './events.service';
 type SocketJwtPayload = {
   sub: number;
   username: string;
+  role: 'admin' | 'user';
 };
 
 type AuthenticatedUser = {
+  userId: number;
+  username: string;
+  role: 'admin' | 'user';
+};
+
+type OnlineUser = {
   userId: number;
   username: string;
 };
@@ -27,9 +35,11 @@ type AuthenticatedUser = {
     credentials: true,
   },
 })
-export class EventsGateway implements OnGatewayConnection {
+export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server!: Server;
+
+  private readonly socketsByUserId = new Map<number, Set<string>>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -49,12 +59,29 @@ export class EventsGateway implements OnGatewayConnection {
         secret: process.env.JWT_SECRET ?? 'dev_secret_change_me',
       });
 
-      client.data.user = { userId: payload.sub, username: payload.username };
+      client.data.user = {
+        userId: payload.sub,
+        username: payload.username,
+        role: payload.role,
+      };
+
+      this.trackSocket(payload.sub, client.id);
       client.emit('connected', client.data.user);
+      this.emitOnlineUsers();
     } catch {
       client.emit('error', 'Unauthorized');
       client.disconnect();
     }
+  }
+
+  handleDisconnect(client: Socket) {
+    const user = client.data.user as AuthenticatedUser | undefined;
+    if (!user) {
+      return;
+    }
+
+    this.untrackSocket(user.userId, client.id);
+    this.emitOnlineUsers();
   }
 
   @SubscribeMessage('join_room')
@@ -68,7 +95,22 @@ export class EventsGateway implements OnGatewayConnection {
       return;
     }
 
-    const room = await this.eventsService.ensureRoom(roomKey, body?.roomName);
+    const user = this.getUser(client);
+    const room = await this.eventsService.getRoomByKey(roomKey);
+    if (!room) {
+      client.emit('error', 'Group not found');
+      return;
+    }
+
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess && user.role !== 'admin') {
+      client.emit('error', 'Unauthorized group access');
+      return;
+    }
+
     await client.join(room.key);
     const messages = await this.eventsService.getRecentMessages(room.key);
 
@@ -78,7 +120,7 @@ export class EventsGateway implements OnGatewayConnection {
   @SubscribeMessage('send_message')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { roomKey?: string; content?: string },
+    @MessageBody() body: { roomKey?: string; content?: string; replyToMessageId?: string },
   ) {
     const roomKey = body?.roomKey?.trim();
     const content = body?.content?.trim();
@@ -87,10 +129,27 @@ export class EventsGateway implements OnGatewayConnection {
       return;
     }
 
+    const user = this.getUser(client);
+    const room = await this.eventsService.getRoomByKey(roomKey);
+    if (!room) {
+      client.emit('error', 'Group not found');
+      return;
+    }
+
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess && user.role !== 'admin') {
+      client.emit('error', 'Unauthorized room access');
+      return;
+    }
+
     const message = await this.eventsService.createMessage({
       roomKey,
       content,
-      sender: this.getUser(client),
+      sender: user,
+      replyToMessageId: body.replyToMessageId?.trim(),
     });
 
     this.server.to(roomKey).emit('receive_message', message);
@@ -132,8 +191,196 @@ export class EventsGateway implements OnGatewayConnection {
     this.server.to(receipt.roomKey).emit('read_receipt', receipt);
   }
 
+  @SubscribeMessage('add_reaction')
+  async handleAddReaction(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { messageId?: string; emoji?: string },
+  ) {
+    const messageId = body?.messageId?.trim();
+    const emoji = body?.emoji?.trim();
+    if (!messageId || !emoji) {
+      return;
+    }
+
+    const updated = await this.eventsService.toggleReaction({
+      messageId,
+      emoji,
+      user: this.getUser(client),
+    });
+
+    if (!updated) {
+      client.emit('error', 'Unable to add reaction');
+      return;
+    }
+
+    this.server.to(updated.roomKey).emit('reaction_update', {
+      messageId: updated.messageId,
+      reactions: updated.reactions,
+    });
+  }
+
+  @SubscribeMessage('call_user')
+  handleCallUser(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number; roomKey?: string; callType?: 'voice' | 'video' },
+  ) {
+    const from = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      client.emit('error', 'targetUserId is required');
+      return;
+    }
+
+    const targetSocketIds = this.getSocketIds(targetUserId);
+    if (targetSocketIds.length === 0) {
+      client.emit('reject_call', { byUserId: targetUserId, reason: 'User is offline' });
+      return;
+    }
+
+    const payload = {
+      fromUserId: from.userId,
+      fromUsername: from.username,
+      roomKey: body?.roomKey?.trim() ?? '',
+      callType: body?.callType === 'voice' ? 'voice' : 'video',
+    };
+
+    for (const socketId of targetSocketIds) {
+      this.server.to(socketId).emit('receive_call', payload);
+    }
+  }
+
+  @SubscribeMessage('accept_call')
+  handleAcceptCall(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number },
+  ) {
+    this.forwardToUser(body?.targetUserId, 'accept_call', {
+      fromUserId: this.getUser(client).userId,
+    });
+  }
+
+  @SubscribeMessage('reject_call')
+  handleRejectCall(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number; reason?: string },
+  ) {
+    this.forwardToUser(body?.targetUserId, 'reject_call', {
+      fromUserId: this.getUser(client).userId,
+      reason: body?.reason ?? 'Call rejected',
+    });
+  }
+
+  @SubscribeMessage('offer')
+  handleOffer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number; sdp?: Record<string, unknown> },
+  ) {
+    if (!body?.sdp) {
+      return;
+    }
+
+    this.forwardToUser(body?.targetUserId, 'offer', {
+      fromUserId: this.getUser(client).userId,
+      sdp: body.sdp,
+    });
+  }
+
+  @SubscribeMessage('answer')
+  handleAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number; sdp?: Record<string, unknown> },
+  ) {
+    if (!body?.sdp) {
+      return;
+    }
+
+    this.forwardToUser(body?.targetUserId, 'answer', {
+      fromUserId: this.getUser(client).userId,
+      sdp: body.sdp,
+    });
+  }
+
+  @SubscribeMessage('ice_candidate')
+  handleIceCandidate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { targetUserId?: number; candidate?: Record<string, unknown> },
+  ) {
+    if (!body?.candidate) {
+      return;
+    }
+
+    this.forwardToUser(body?.targetUserId, 'ice_candidate', {
+      fromUserId: this.getUser(client).userId,
+      candidate: body.candidate,
+    });
+  }
+
   private getUser(client: Socket): AuthenticatedUser {
     return client.data.user as AuthenticatedUser;
+  }
+
+  private trackSocket(userId: number, socketId: string) {
+    const existing = this.socketsByUserId.get(userId);
+    if (!existing) {
+      this.socketsByUserId.set(userId, new Set([socketId]));
+      return;
+    }
+
+    existing.add(socketId);
+  }
+
+  private untrackSocket(userId: number, socketId: string) {
+    const existing = this.socketsByUserId.get(userId);
+    if (!existing) {
+      return;
+    }
+
+    existing.delete(socketId);
+    if (existing.size === 0) {
+      this.socketsByUserId.delete(userId);
+    }
+  }
+
+  private getSocketIds(userId: number): string[] {
+    const ids = this.socketsByUserId.get(userId);
+    return ids ? [...ids] : [];
+  }
+
+  private emitOnlineUsers() {
+    const onlineUsers: OnlineUser[] = [];
+
+    for (const [userId, socketIds] of this.socketsByUserId.entries()) {
+      if (socketIds.size === 0) {
+        continue;
+      }
+
+      const firstSocketId = [...socketIds][0];
+      const socket = this.server.sockets.sockets.get(firstSocketId);
+      const user = socket?.data?.user as AuthenticatedUser | undefined;
+      if (!user) {
+        continue;
+      }
+
+      onlineUsers.push({
+        userId,
+        username: user.username,
+      });
+    }
+
+    onlineUsers.sort((a, b) => a.username.localeCompare(b.username));
+    this.server.emit('online_users', { users: onlineUsers });
+  }
+
+  private forwardToUser(targetUserId: number | undefined, event: string, payload: Record<string, unknown>) {
+    const userId = Number(targetUserId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      return;
+    }
+
+    const targetSocketIds = this.getSocketIds(userId);
+    for (const socketId of targetSocketIds) {
+      this.server.to(socketId).emit(event, payload);
+    }
   }
 
   private extractTokenFromCookie(client: Socket): string | null {

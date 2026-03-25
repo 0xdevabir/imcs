@@ -102,3 +102,16 @@ model MessageReaction {
   @@unique([messageId, userId, emoji])
   @@index([messageId])
 }
+
+model CommunicationRule {
+  id           String   @id @default(cuid())
+  fromUsername String
+  toUsername   String
+  allowed      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([fromUsername, toUsername])
+  @@index([fromUsername])
+  @@index([toUsername])
+}

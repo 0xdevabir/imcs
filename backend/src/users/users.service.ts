@@ -31,6 +31,10 @@ export class UsersService {
     return this.users.find((user) => user.username === username);
   }
 
+  findOneById(userId: number): UserRecord | undefined {
+    return this.users.find((user) => user.userId === userId);
+  }
+
   findSafeById(userId: number): Omit<UserRecord, 'password'> | undefined {
     const user = this.users.find((candidate) => candidate.userId === userId);
     if (!user) return undefined;
@@ -60,5 +64,26 @@ export class UsersService {
 
     const { password: _password, ...safeUser } = user;
     return safeUser;
+  }
+
+  updateRole(username: string, role: 'admin' | 'user') {
+    const user = this.findOne(username);
+    if (!user) {
+      return undefined;
+    }
+
+    user.role = role;
+    const { password: _password, ...safeUser } = user;
+    return safeUser;
+  }
+
+  deleteUser(username: string) {
+    const index = this.users.findIndex((candidate) => candidate.username === username);
+    if (index < 0) {
+      return false;
+    }
+
+    this.users.splice(index, 1);
+    return true;
   }
 }

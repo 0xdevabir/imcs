@@ -10,6 +10,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { parse as parseCookie } from 'cookie';
 import { Server, Socket } from 'socket.io';
+import { CommunicationService } from '../communication/communication.service';
 import { EventsService } from './events.service';
 
 type SocketJwtPayload = {
@@ -44,6 +45,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private readonly jwtService: JwtService,
     private readonly eventsService: EventsService,
+    private readonly communicationService: CommunicationService,
   ) {}
 
   handleConnection(client: Socket) {
@@ -145,6 +147,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const participants = await this.eventsService.getRoomParticipantUsernames(roomKey);
+    for (const participantUsername of participants) {
+      if (participantUsername === user.username) {
+        continue;
+      }
+
+      const allowed = await this.communicationService.canUsersCommunicate(
+        user.username,
+        participantUsername,
+      );
+      if (!allowed) {
+        client.emit('error', `Messaging is blocked between ${user.username} and ${participantUsername}`);
+        return;
+      }
+    }
+
     const message = await this.eventsService.createMessage({
       roomKey,
       content,
@@ -220,7 +238,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('call_user')
-  handleCallUser(
+  async handleCallUser(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { targetUserId?: number; roomKey?: string; callType?: 'voice' | 'video' },
   ) {
@@ -234,6 +252,25 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const targetSocketIds = this.getSocketIds(targetUserId);
     if (targetSocketIds.length === 0) {
       client.emit('reject_call', { byUserId: targetUserId, reason: 'User is offline' });
+      return;
+    }
+
+    const targetSocket = this.server.sockets.sockets.get(targetSocketIds[0]);
+    const targetUser = targetSocket?.data?.user as AuthenticatedUser | undefined;
+    if (!targetUser) {
+      client.emit('reject_call', { byUserId: targetUserId, reason: 'Target user unavailable' });
+      return;
+    }
+
+    const allowed = await this.communicationService.canUsersCommunicate(
+      from.username,
+      targetUser.username,
+    );
+    if (!allowed) {
+      client.emit('reject_call', {
+        byUserId: targetUserId,
+        reason: `Calling is blocked between ${from.username} and ${targetUser.username}`,
+      });
       return;
     }
 

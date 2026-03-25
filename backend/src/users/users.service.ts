@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { hash, hashSync } from 'bcryptjs';
 
 export type UserRecord = {
@@ -9,7 +9,7 @@ export type UserRecord = {
 };
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnModuleInit {
   private nextUserId = 2;
   private readonly users: UserRecord[];
 
@@ -25,6 +25,21 @@ export class UsersService {
         role: 'admin',
       },
     ];
+  }
+
+  async onModuleInit() {
+    const quickUsers = [
+      { username: 'user1', password: 'User123!', role: 'user' as const },
+      { username: 'user2', password: 'User123!', role: 'user' as const },
+      { username: 'user3', password: 'User123!', role: 'user' as const },
+      { username: 'user4', password: 'User123!', role: 'user' as const },
+    ];
+
+    for (const user of quickUsers) {
+      if (!this.findOne(user.username)) {
+        await this.createUser(user);
+      }
+    }
   }
 
   findOne(username: string): UserRecord | undefined {
@@ -85,5 +100,19 @@ export class UsersService {
 
     this.users.splice(index, 1);
     return true;
+  }
+
+  searchUsers(query: string): Array<{ userId: number; username: string; role: 'admin' | 'user' }> {
+    const lowerQuery = query.toLowerCase();
+    return this.users
+      .filter((user) => user.username.toLowerCase().includes(lowerQuery))
+      .map(({ password: _password, ...safeUser }) => safeUser)
+      .slice(0, 10);
+  }
+
+  findByUsername(username: string): { userId: number; username: string; role: 'admin' | 'user' } | undefined {
+    const user = this.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+    if (!user) return undefined;
+    return { userId: user.userId, username: user.username, role: user.role };
   }
 }

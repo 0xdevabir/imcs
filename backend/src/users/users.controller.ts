@@ -8,6 +8,7 @@ import {
   NotFoundException,
   Param,
   Patch,
+  Query,
   Request,
   Post,
   UseGuards,
@@ -38,6 +39,28 @@ export class UsersController {
   @Roles('admin')
   listUsers() {
     return this.usersService.findAllSafe();
+  }
+
+  @Get('search')
+  searchUsers(@Query('q') query: string) {
+    if (!query || query.trim().length < 2) {
+      return [];
+    }
+    return this.usersService.searchUsers(query.trim());
+  }
+
+  @Get('all')
+  getAllUsers() {
+    return this.usersService.findAllSafe();
+  }
+
+  @Get(':username')
+  getUserByUsername(@Param('username') username: string) {
+    const user = this.usersService.findOne(username);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return this.usersService.findSafeById(user.userId);
   }
 
   @Patch(':username/role')

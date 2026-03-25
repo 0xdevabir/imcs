@@ -89,6 +89,12 @@ export type UploadedFileResponse = {
   url: string;
 };
 
+export type SearchedUser = {
+  userId: number;
+  username: string;
+  role: 'admin' | 'user';
+};
+
 export type AttachmentPayload = {
   kind: 'file';
   url: string;

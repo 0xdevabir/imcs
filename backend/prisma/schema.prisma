@@ -13,27 +13,38 @@ enum ReceiptStatus {
 }
 
 model ChatRoom {
-  id        String        @id @default(cuid())
-  key       String        @unique
+  id        String           @id @default(cuid())
+  key       String           @unique
   name      String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  ownerUserId Int?
+  ownerUsername String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
   messages  ChatMessage[]
+  members   ChatRoomMember[]
+  files     UploadedFile[]
+
+  @@index([ownerUserId])
 }
 
 model ChatMessage {
-  id             String           @id @default(cuid())
-  roomId         String
-  senderUserId   Int
-  senderUsername String
-  content        String
-  createdAt      DateTime         @default(now())
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  room           ChatRoom         @relation(fields: [roomId], references: [id], onDelete: Cascade)
-  receipts       MessageReceipt[]
+  id               String            @id @default(cuid())
+  roomId           String
+  senderUserId     Int
+  senderUsername   String
+  content          String
+  createdAt        DateTime          @default(now())
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  replyToMessageId String?
+  room             ChatRoom          @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  receipts         MessageReceipt[]
+  reactions        MessageReaction[]
+  replyTo          ChatMessage?      @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies          ChatMessage[]     @relation("MessageReplies")
 
   @@index([roomId, createdAt])
+  @@index([replyToMessageId])
 }
 
 model MessageReceipt {
@@ -46,5 +57,48 @@ model MessageReceipt {
   message    ChatMessage   @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
   @@unique([messageId, userId, status])
+  @@index([messageId])
+}
+
+model ChatRoomMember {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    Int
+  username  String
+  joinedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, userId])
+  @@index([userId])
+}
+
+model UploadedFile {
+  id             String   @id @default(cuid())
+  roomId         String
+  uploaderUserId Int
+  uploaderName   String
+  storedName     String   @unique
+  originalName   String
+  mimeType       String
+  size           Int
+  storagePath    String
+  createdAt      DateTime @default(now())
+  room           ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@index([uploaderUserId])
+}
+
+model MessageReaction {
+  id        String      @id @default(cuid())
+  messageId String
+  userId    Int
+  username  String
+  emoji     String
+  createdAt DateTime    @default(now())
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
   @@index([messageId])
 }

@@ -45,118 +45,101 @@ function formatTime(dateStr: string) {
 
 export function CallsPanel(props: CallsPanelProps) {
   const missed = props.callHistory.filter((c) => c.callStatus === 'missed');
-  const completed = props.callHistory.filter((c) => c.callStatus === 'completed' || c.callStatus === 'incoming' || c.callStatus === 'outgoing');
+  const recent = props.callHistory.filter((c) => c.callStatus !== 'missed');
 
   return (
-    <section
-      className={`h-full flex flex-col transition-all duration-300 ${
-        props.darkMode
-          ? 'bg-slate-950/90 text-slate-200'
-          : 'bg-slate-50/80 text-slate-800'
-      }`}
-    >
+    <section className={`h-full flex flex-col ${
+      props.darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+    }`}>
       {/* Header */}
-      <div className={`px-5 pt-6 pb-5 border-b ${props.darkMode ? 'border-slate-800/60' : 'border-slate-200/80'}`}>
-        <h1 className="text-xl font-bold tracking-tight">Calls</h1>
-        <div className="flex items-center gap-3 mt-2">
-          <div className={`inline-flex items-center gap-1.5 text-sm ${props.darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-            {props.callHistory.length} total
+      <div className={`px-5 pt-5 pb-4 border-b ${
+        props.darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-200 bg-white'
+      }`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              Calls
+            </h1>
+            <p className={`text-xs mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+              {props.callHistory.length === 0 ? 'No recent calls' : (
+                <span className="inline-flex items-center gap-2">
+                  <span>{props.callHistory.length} total</span>
+                  {missed.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-rose-500">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      {missed.length} missed
+                    </span>
+                  )}
+                </span>
+              )}
+            </p>
           </div>
-          {missed.length > 0 && (
-            <div className="inline-flex items-center gap-1.5 text-sm text-rose-500">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-              {missed.length} missed
-            </div>
-          )}
         </div>
       </div>
 
       {/* Call list */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto">
         {props.callHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center px-8">
+          <div className="flex flex-col items-center justify-center h-full text-center px-8 py-16">
             <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 ${
-              props.darkMode ? 'bg-slate-800/60' : 'bg-white shadow-sm'
+              props.darkMode ? 'bg-slate-800' : 'bg-white shadow-sm'
             }`}>
               <svg className={`w-8 h-8 ${props.darkMode ? 'text-slate-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
             </div>
-            <p className={`text-sm font-semibold mb-1.5 ${props.darkMode ? 'text-slate-400' : 'text-slate-600'}`}>No call history</p>
-            <p className={`text-xs ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-              Start a call from Contacts or a chat
+            <p className={`text-sm font-semibold mb-1 ${props.darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+              No call history
+            </p>
+            <p className={`text-xs leading-relaxed ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+              Start a call from Contacts or a chat window
             </p>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div>
             {missed.length > 0 && (
-              <CallSection
-                title="Missed"
-                calls={missed}
-                accentColor="rose"
-                darkMode={props.darkMode}
-                onStartVoiceCall={props.onStartVoiceCall}
-                onStartVideoCall={props.onStartVideoCall}
-              />
+              <div>
+                <div className="px-5 pt-4 pb-1">
+                  <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 ${props.darkMode ? 'text-rose-500/60' : 'text-rose-500/70'}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    Missed · {missed.length}
+                  </span>
+                </div>
+                {missed.map((call) => (
+                  <CallItem
+                    key={call.id}
+                    call={call}
+                    darkMode={props.darkMode}
+                    onStartVoiceCall={props.onStartVoiceCall}
+                    onStartVideoCall={props.onStartVideoCall}
+                  />
+                ))}
+              </div>
             )}
-            {completed.length > 0 && (
-              <CallSection
-                title="Recent"
-                calls={completed}
-                accentColor="slate"
-                darkMode={props.darkMode}
-                onStartVoiceCall={props.onStartVoiceCall}
-                onStartVideoCall={props.onStartVideoCall}
-              />
+
+            {recent.length > 0 && (
+              <div>
+                <div className="px-5 pt-4 pb-1">
+                  <span className={`text-[10px] font-bold uppercase tracking-widest flex items-center gap-1.5 ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${props.darkMode ? 'bg-slate-600' : 'bg-slate-300'}`} />
+                    Recent · {recent.length}
+                  </span>
+                </div>
+                {recent.map((call) => (
+                  <CallItem
+                    key={call.id}
+                    call={call}
+                    darkMode={props.darkMode}
+                    onStartVoiceCall={props.onStartVoiceCall}
+                    onStartVideoCall={props.onStartVideoCall}
+                  />
+                ))}
+              </div>
             )}
           </div>
         )}
       </div>
     </section>
-  );
-}
-
-function CallSection({
-  title, calls, accentColor, darkMode, onStartVoiceCall, onStartVideoCall,
-}: {
-  title: string;
-  calls: CallHistoryItem[];
-  accentColor: string;
-  darkMode: boolean;
-  onStartVoiceCall: (userId: number, username: string) => void;
-  onStartVideoCall: (userId: number, username: string) => void;
-}) {
-  const dotColors: Record<string, string> = {
-    rose: 'bg-rose-500',
-    emerald: 'bg-emerald-500',
-    blue: 'bg-blue-500',
-    slate: darkMode ? 'bg-slate-600' : 'bg-slate-300',
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-3">
-        <span className={`w-1.5 h-1.5 rounded-full ${dotColors[accentColor] ?? dotColors.slate}`} />
-        <p className={`text-[11px] font-bold uppercase tracking-widest ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-          {title}
-        </p>
-        <span className={`text-[10px] font-medium rounded-full px-1.5 py-0.5 ${darkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-100 text-slate-400'}`}>
-          {calls.length}
-        </span>
-      </div>
-      <div className="space-y-1">
-        {calls.map((call) => (
-          <CallItem
-            key={call.id}
-            call={call}
-            darkMode={darkMode}
-            onStartVoiceCall={onStartVoiceCall}
-            onStartVideoCall={onStartVideoCall}
-          />
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -170,57 +153,59 @@ function CallItem({
 }) {
   const grad = avatarGradient(call.peerUsername);
   const duration = formatDuration(call.duration);
+  const isMissed = call.callStatus === 'missed';
+  const isIncoming = call.callStatus === 'incoming' || call.callStatus === 'completed';
 
-  const statusConfig = {
-    missed: { label: 'Missed call', color: 'text-rose-500', icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M5 3a2 2 0 00-2 2v1c0 8.284 6.716 15 15 15h1a2 2 0 002-2v-3.28a1 1 0 00-.684-.948l-4.493-1.498a1 1 0 00-1.21.502l-1.13 2.257a11.042 11.042 0 01-5.516-5.517l2.257-1.128a1 1 0 00.502-1.21L9.228 3.683A1 1 0 008.279 3H5z" />
+  // Arrow direction indicator
+  const ArrowIcon = () => {
+    if (isMissed) {
+      return (
+        <svg className="w-3 h-3 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 13l-7 7-7-7m14-8l-7 7-7-7" />
+        </svg>
+      );
+    }
+    if (isIncoming) {
+      return (
+        <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 11l-7-7-7 7" />
+        </svg>
+      );
+    }
+    return (
+      <svg className={`w-3 h-3 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 11l7-7 7 7" />
       </svg>
-    )},
-    incoming: { label: 'Incoming', color: 'text-emerald-500', icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-      </svg>
-    )},
-    outgoing: { label: 'Outgoing', color: darkMode ? 'text-slate-400' : 'text-slate-500', icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M16 8l2-2M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-      </svg>
-    )},
-    completed: { label: 'Completed', color: darkMode ? 'text-slate-400' : 'text-slate-500', icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-      </svg>
-    )},
+    );
   };
 
-  const { label, color, icon } = statusConfig[call.callStatus] ?? statusConfig.completed;
+  const statusLabel = isMissed ? 'Missed' : isIncoming ? 'Incoming' : 'Outgoing';
+  const statusColor = isMissed
+    ? 'text-rose-500'
+    : isIncoming
+      ? darkMode ? 'text-emerald-400' : 'text-emerald-600'
+      : darkMode ? 'text-slate-500' : 'text-slate-400';
 
   return (
-    <div
-      className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-150 ${
-        darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-white hover:shadow-sm'
-      }`}
-    >
-      {/* Avatar with call type badge */}
+    <div className={`group flex items-center gap-3 px-4 py-3 transition-colors duration-100 ${
+      darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
+    }`}>
+      {/* Avatar */}
       <div className="relative flex-shrink-0">
-        <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}>
+        <div className={`w-11 h-11 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}>
           {call.peerUsername.charAt(0).toUpperCase()}
         </div>
-        <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center ${
-          call.callType === 'video'
-            ? 'bg-blue-500'
-            : call.callStatus === 'missed'
-              ? 'bg-rose-500'
-              : 'bg-emerald-500'
-        }`}>
+        {/* Call type badge */}
+        <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center ring-2 ${
+          darkMode ? 'ring-slate-950' : 'ring-white'
+        } ${call.callType === 'video' ? 'bg-blue-500' : isMissed ? 'bg-rose-500' : 'bg-emerald-500'}`}>
           {call.callType === 'video' ? (
-            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
             </svg>
           ) : (
-            <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
             </svg>
           )}
         </div>
@@ -228,29 +213,31 @@ function CallItem({
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold truncate">{call.peerUsername}</p>
-        <div className={`flex items-center gap-1 text-xs ${color}`}>
-          {icon}
-          <span>{label}</span>
+        <p className={`text-sm font-semibold truncate ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+          {call.peerUsername}
+        </p>
+        <div className={`flex items-center gap-1.5 text-xs mt-0.5 ${statusColor}`}>
+          <ArrowIcon />
+          <span>{statusLabel}</span>
           {duration && (
-            <span className={darkMode ? 'text-slate-600' : 'text-slate-400'}>· {duration}</span>
+            <span className={`${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>· {duration}</span>
           )}
         </div>
       </div>
 
       {/* Time + redial */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <span className={`text-xs ${darkMode ? 'text-slate-600' : 'text-slate-400'} group-hover:hidden`}>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <span className={`text-xs tabular-nums group-hover:hidden ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
           {formatTime(call.createdAt)}
         </span>
         <div className="hidden group-hover:flex items-center gap-1">
           <button
             type="button"
             onClick={() => onStartVoiceCall(call.peerUserId, call.peerUsername)}
+            title="Voice call back"
             className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
-              darkMode ? 'text-slate-400 hover:bg-slate-700 hover:text-emerald-400' : 'text-slate-400 hover:bg-emerald-50 hover:text-emerald-600'
+              darkMode ? 'text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50'
             }`}
-            title="Voice call"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -259,10 +246,10 @@ function CallItem({
           <button
             type="button"
             onClick={() => onStartVideoCall(call.peerUserId, call.peerUsername)}
+            title="Video call back"
             className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${
-              darkMode ? 'text-slate-400 hover:bg-slate-700 hover:text-blue-400' : 'text-slate-400 hover:bg-blue-50 hover:text-blue-600'
+              darkMode ? 'text-slate-400 hover:text-blue-400 hover:bg-blue-500/10' : 'text-slate-400 hover:text-blue-600 hover:bg-blue-50'
             }`}
-            title="Video call"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />

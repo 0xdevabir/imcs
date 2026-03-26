@@ -1,4 +1,4 @@
-export type AppSection = 'chats' | 'calls' | 'contacts' | 'settings';
+export type AppSection = 'chats' | 'calls' | 'contacts' | 'meetings' | 'settings';
 
 export type Profile = {
   userId: number;

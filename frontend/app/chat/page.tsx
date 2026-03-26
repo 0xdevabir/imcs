@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL, authFetch, getAuthToken } from '@/lib/config';
@@ -12,6 +12,7 @@ import { Sidebar } from '@/components/messaging/Sidebar';
 import { ContactsPanel } from '@/components/messaging/ContactsPanel';
 import { ProfileView } from '@/components/profile/ProfileView';
 import { SettingsView } from '@/components/profile/SettingsView';
+import { MeetingsPanel } from '@/components/meetings/MeetingsPanel';
 import {
   AppSection,
   CallHistoryItem,
@@ -943,7 +944,7 @@ export default function ChatPage() {
 
   return (
     <main className={`${darkMode ? 'dark' : ''}`}>
-      <div className={`h-[calc(100vh-4rem)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
+      <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
         <div className="mx-auto flex h-full max-w-[1800px]">
           <Sidebar
             collapsed={sidebarCollapsed}
@@ -958,21 +959,23 @@ export default function ChatPage() {
             onProfileClick={() => { setActiveSection('settings'); setShowSettings(false); }}
           />
 
-          <div className="hidden md:flex h-full w-[380px] lg:w-[400px] shrink-0">
-            <ChatList
-              rooms={rooms}
-              activeRoomKey={activeRoomKey}
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              onOpenRoom={openRoom}
-              pinnedRoomKeys={pinnedRoomKeys}
-              onTogglePin={togglePin}
-              onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
-              darkMode={darkMode}
-            />
-          </div>
+          {activeSection === 'chats' && (
+            <div className="hidden md:flex h-full w-[360px] lg:w-[380px] shrink-0">
+              <ChatList
+                rooms={rooms}
+                activeRoomKey={activeRoomKey}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                onOpenRoom={openRoom}
+                pinnedRoomKeys={pinnedRoomKeys}
+                onTogglePin={togglePin}
+                onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
+                darkMode={darkMode}
+              />
+            </div>
+          )}
 
-          <div className="flex-1 flex flex-col overflow-hidden md:ml-3" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div className="flex-1 flex flex-col overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
             {activeSection === 'contacts' ? (
               <div className="h-full flex">
                 <ContactsPanel
@@ -988,6 +991,8 @@ export default function ChatPage() {
                   currentUserId={profile?.userId ?? 0}
                 />
               </div>
+            ) : activeSection === 'meetings' ? (
+              <MeetingsPanel darkMode={darkMode} />
             ) : activeSection === 'settings' && showSettings ? (
               <SettingsView
                 darkMode={darkMode}
@@ -1000,8 +1005,8 @@ export default function ChatPage() {
                 apiUrl={API_URL}
               />
             ) : activeSection === 'settings' ? (
-              <ProfileView 
-                profile={profile ?? { userId: 0, username: '', role: 'user' }} 
+              <ProfileView
+                profile={profile ?? { userId: 0, username: '', role: 'user' }}
                 darkMode={darkMode}
                 onOpenSettings={() => setShowSettings(true)}
               />
@@ -1234,42 +1239,93 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Mobile bottom navigation */}
-        <div className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${darkMode ? 'border-slate-800/80 bg-slate-950/95' : 'border-slate-200 bg-white/98'}`} style={{ backdropFilter: 'blur(20px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
+        <nav
+          className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
+            darkMode ? 'border-white/5 bg-slate-950/98' : 'border-slate-200 bg-white'
+          }`}
+          style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
           {([
-            { id: 'chats' as AppSection, label: 'Chats', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> },
-            { id: 'calls' as AppSection, label: 'Calls', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg> },
-            { id: 'contacts' as AppSection, label: 'People', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
-            { id: 'settings' as AppSection, label: 'Profile', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
-          ]).map(({ id, label, icon }) => {
+            {
+              id: 'chats' as AppSection,
+              label: 'Chats',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'calls' as AppSection,
+              label: 'Calls',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'contacts' as AppSection,
+              label: 'Contacts',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'meetings' as AppSection,
+              label: 'Meetings',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'settings' as AppSection,
+              label: 'Settings',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              ),
+            },
+          ] as Array<{ id: AppSection; label: string; icon: (active: boolean) => React.ReactNode }>).map(({ id, label, icon }) => {
             const isActive = mobileSection === id;
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => { setMobileSection(id); setActiveSection(id); if (id !== 'chats') setMobileChatOpen(false); }}
-                className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-semibold transition-all duration-150 ${
+                onClick={() => {
+                  setMobileSection(id);
+                  setActiveSection(id);
+                  if (id !== 'chats') setMobileChatOpen(false);
+                }}
+                className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${
                   isActive
                     ? darkMode ? 'text-blue-400' : 'text-blue-600'
-                    : darkMode ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600'
+                    : darkMode ? 'text-slate-600' : 'text-slate-400'
                 }`}
               >
-                {/* Active indicator dot */}
+                {/* Active top line indicator */}
                 {isActive && (
-                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-blue-500" />
                 )}
-                {/* Badge for chats */}
+                {/* Unread badge */}
                 {id === 'chats' && unreadTotal > 0 && !isActive && (
-                  <span className="absolute top-1.5 right-[calc(50%-18px)] w-4 h-4 flex items-center justify-center rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                  <span className="absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[9px] font-bold px-0.5">
                     {unreadTotal > 9 ? '9+' : unreadTotal}
                   </span>
                 )}
-                {icon}
+                <span className="relative">{icon(isActive)}</span>
                 <span>{label}</span>
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       <CallUI

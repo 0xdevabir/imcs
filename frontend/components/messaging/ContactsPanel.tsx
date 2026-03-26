@@ -703,7 +703,7 @@ function ContactCard({ user, isOnline, onlineStatus, isAdded, onStartVoiceCall, 
       </div>
 
       {/* Hover actions */}
-      <div className="flex items-center gap-1.5 w-full opacity-0 group-hover:opacity-100 transition-all duration-200">
+      <div className="flex items-center gap-1.5 w-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200">
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onContactClick(user.userId, user.username); }}

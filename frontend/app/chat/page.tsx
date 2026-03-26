@@ -412,7 +412,16 @@ export default function ChatPage() {
     socket.on('message_deleted', (payload: { messageId: string }) => {
       setMessages((prev) => prev.map((item) => item.id === payload.messageId ? { ...item, content: 'This message was deleted.', isDeleted: true } : item));
     });
-    socket.on('receive_call', (payload: IncomingCall) => { setIncomingCall(payload); setCallStatus(`Incoming ${payload.callType} call`); setActiveCallType(payload.callType); });
+    socket.on('receive_call', (payload: IncomingCall) => {
+      setIncomingCall(payload);
+      setCallStatus(`Incoming ${payload.callType} call`);
+      setActiveCallType(payload.callType);
+      if (typeof window !== 'undefined' && window.innerWidth < 768) {
+        setActiveSection('calls');
+        setMobileSection('calls');
+        setMobileChatOpen(false);
+      }
+    });
     socket.on('accept_call', async (payload: { fromUserId: number }) => {
       setActiveCallUserId(payload.fromUserId);
       setCallStatus('Call accepted. Negotiating...');
@@ -539,6 +548,11 @@ export default function ChatPage() {
 
 const handleVoiceCall = (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setActiveSection('calls');
+      setMobileSection('calls');
+      setMobileChatOpen(false);
+    }
     cleanupCall(); setActiveCallType('voice'); activeCallTypeRef.current = 'voice';
     ensureLocalStream('voice').then(() => {
       setActiveCallUserId(userId);
@@ -549,6 +563,11 @@ const handleVoiceCall = (userId: number, username: string) => {
 
   const handleVideoCall = (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      setActiveSection('calls');
+      setMobileSection('calls');
+      setMobileChatOpen(false);
+    }
     cleanupCall(); setActiveCallType('video'); activeCallTypeRef.current = 'video';
     ensureLocalStream('video').then(() => {
       setActiveCallUserId(userId);

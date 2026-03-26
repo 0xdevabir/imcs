@@ -55,6 +55,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly socketsByUserId = new Map<number, Set<string>>();
   private readonly userStatusMap = new Map<number, UserStatus>();
+  // roomKey → Map<userId, username> for active calls
+  private readonly callRooms = new Map<string, Map<number, string>>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -95,6 +97,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = client.data.user as AuthenticatedUser | undefined;
     if (!user) {
       return;
+    }
+
+    // Clean up call rooms on disconnect
+    for (const [roomKey, room] of this.callRooms.entries()) {
+      if (room.has(user.userId)) {
+        room.delete(user.userId);
+        for (const [participantId] of room) {
+          this.forwardToUser(participantId, 'user_left_call', {
+            userId: user.userId,
+            username: user.username,
+          });
+        }
+        if (room.size === 0) this.callRooms.delete(roomKey);
+      }
     }
 
     this.untrackSocket(user.userId, client.id);
@@ -318,13 +334,104 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  @SubscribeMessage('group_call_start')
+  async handleGroupCallStart(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { roomKey?: string; callType?: 'voice' | 'video' },
+  ) {
+    const user = this.getUser(client);
+    const roomKey = body?.roomKey?.trim();
+    if (!roomKey) return;
+
+    const participantUsernames = await this.eventsService.getRoomParticipantUsernames(roomKey);
+    const callType = body?.callType === 'voice' ? 'voice' : 'video';
+
+    for (const username of participantUsernames) {
+      if (username === user.username) continue;
+      const targetUser = await this.usersService.findByUsername(username);
+      if (!targetUser) continue;
+      const socketIds = this.getSocketIds(targetUser.userId);
+      for (const socketId of socketIds) {
+        this.server.to(socketId).emit('receive_call', {
+          fromUserId: user.userId,
+          fromUsername: user.username,
+          roomKey,
+          callType,
+          isGroupCall: true,
+        });
+      }
+    }
+  }
+
+  @SubscribeMessage('join_group_call')
+  handleJoinGroupCall(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { roomKey?: string; callType?: 'voice' | 'video' },
+  ) {
+    const user = this.getUser(client);
+    const roomKey = body?.roomKey?.trim();
+    if (!roomKey) return;
+
+    if (!this.callRooms.has(roomKey)) {
+      this.callRooms.set(roomKey, new Map());
+    }
+    const callRoom = this.callRooms.get(roomKey)!;
+
+    const existingParticipants = [...callRoom.entries()].map(([uid, uname]) => ({
+      userId: uid,
+      username: uname,
+    }));
+
+    const callType = body?.callType === 'voice' ? 'voice' : 'video';
+
+    // Notify all current participants that a new user joined — they create offers
+    for (const [participantId] of callRoom) {
+      this.forwardToUser(participantId, 'user_joined_call', {
+        userId: user.userId,
+        username: user.username,
+        callType,
+      });
+    }
+
+    callRoom.set(user.userId, user.username);
+
+    // Tell the new joiner who is already in the call
+    client.emit('call_participants', { participants: existingParticipants });
+  }
+
+  @SubscribeMessage('leave_group_call')
+  handleLeaveGroupCall(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { roomKey?: string },
+  ) {
+    const user = this.getUser(client);
+    const roomKey = body?.roomKey?.trim();
+    if (!roomKey) return;
+
+    const callRoom = this.callRooms.get(roomKey);
+    if (!callRoom) return;
+
+    callRoom.delete(user.userId);
+
+    for (const [participantId] of callRoom) {
+      this.forwardToUser(participantId, 'user_left_call', {
+        userId: user.userId,
+        username: user.username,
+      });
+    }
+
+    if (callRoom.size === 0) this.callRooms.delete(roomKey);
+  }
+
   @SubscribeMessage('accept_call')
   handleAcceptCall(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { targetUserId?: number },
   ) {
+    const user = this.getUser(client);
     this.forwardToUser(body?.targetUserId, 'accept_call', {
-      fromUserId: this.getUser(client).userId,
+      fromUserId: user.userId,
+      fromUsername: user.username,
     });
   }
 

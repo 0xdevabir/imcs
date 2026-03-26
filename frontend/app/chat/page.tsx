@@ -57,7 +57,13 @@ export default function ChatPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [status, setStatus] = useState('Checking secure session...');
 
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const stored = localStorage.getItem('imcs_theme');
+    if (stored === 'dark') return true;
+    if (stored === 'light') return false;
+    return true;
+  });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeSection, setActiveSection] = useState<AppSection>('chats');
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
@@ -131,6 +137,10 @@ export default function ChatPage() {
     const secs = String(seconds % 60).padStart(2, '0');
     return `${mins}:${secs}`;
   }, [callStartedAt, callStatus, callTicker]);
+
+  useEffect(() => {
+    localStorage.setItem('imcs_theme', darkMode ? 'dark' : 'light');
+  }, [darkMode]);
 
   useEffect(() => {
     if (!callStartedAt) return;

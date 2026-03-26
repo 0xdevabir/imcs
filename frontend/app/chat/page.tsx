@@ -5,26 +5,36 @@ import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL, authFetch, getAuthToken } from '@/lib/config';
 import { CallUI } from '@/components/messaging/CallUI';
+import { CallsPanel } from '@/components/messaging/CallsPanel';
 import { ChatList } from '@/components/messaging/ChatList';
 import { ChatWindow } from '@/components/messaging/ChatWindow';
 import { Sidebar } from '@/components/messaging/Sidebar';
 import { ContactsPanel } from '@/components/messaging/ContactsPanel';
+import { ProfileView } from '@/components/profile/ProfileView';
+import { SettingsView } from '@/components/profile/SettingsView';
 import {
   AppSection,
+  CallHistoryItem,
   ChatMessage,
   GroupParticipant,
   GroupSummary,
+  SearchedUser,
   IncomingCall,
   OnlineUser,
   Profile,
   RoomItem,
   UploadedFileResponse,
-  SearchedUser,
+  UserStatus,
 } from '@/components/messaging/types';
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
-const CLIENT_MAX_FILE_BYTES = 10 * 1024 * 1024;
-const RTC_CONFIG: RTCConfiguration = { iceServers: [] };
+const CLIENT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+const RTC_CONFIG: RTCConfiguration = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
 
 function encodeAttachmentMessage(file: UploadedFileResponse): string {
   return `${FILE_MESSAGE_PREFIX}${JSON.stringify({ kind: 'file', ...file })}`;
@@ -52,6 +62,7 @@ export default function ChatPage() {
   const [activeSection, setActiveSection] = useState<AppSection>('chats');
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pinnedRoomKeys, setPinnedRoomKeys] = useState<string[]>(['general']);
@@ -80,8 +91,8 @@ export default function ChatPage() {
 
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [userStatus, setUserStatus] = useState<UserStatus>('available');
 
-  const [callTargetUserId, setCallTargetUserId] = useState('');
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
   const [activeCallUserId, setActiveCallUserId] = useState<number | null>(null);
   const [activeCallType, setActiveCallType] = useState<'voice' | 'video'>('video');
@@ -92,6 +103,7 @@ export default function ChatPage() {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
+  const [callHistory, setCallHistory] = useState<CallHistoryItem[]>([]);
 
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef('general');
@@ -149,15 +161,28 @@ export default function ChatPage() {
   useEffect(() => {
     const loadProfile = async () => {
       const token = getAuthToken();
-      if (!token) {
-        setStatus('Please sign in first.');
-        return;
+      if (token) {
+        const response = await authFetch(`${API_URL}/auth/profile`, { method: 'GET' });
+        if (response.ok) {
+          const profileData = (await response.json()) as Profile;
+          setProfile(profileData);
+          setStatus('Secure session active.');
+          return;
+        }
       }
-      const response = await authFetch(`${API_URL}/auth/profile`, { method: 'GET' });
-      if (!response.ok) { setStatus('Please sign in first.'); return; }
-      const profileData = (await response.json()) as Profile;
-      setProfile(profileData);
-      setStatus('Secure session active.');
+      // Prototype fallback: use mock user from localStorage
+      const mockUserStr = typeof window !== 'undefined' ? localStorage.getItem('mockUser') : null;
+      if (mockUserStr) {
+        try {
+          const mockProfile = JSON.parse(mockUserStr) as Profile;
+          setProfile(mockProfile);
+          setStatus('Demo mode');
+          return;
+        } catch {
+          // invalid stored data — fall through
+        }
+      }
+      setStatus('Please sign in first.');
     };
     loadProfile().catch(() => setStatus('Unable to verify profile'));
   }, []);
@@ -254,7 +279,6 @@ export default function ChatPage() {
     setActiveCallUserId(null);
     setIncomingCall(null);
     setCallStatus('idle');
-    setCallStartedAt(null);
     setIsMuted(false);
     setIsCameraOff(false);
     setIsScreenSharing(false);
@@ -355,6 +379,12 @@ export default function ChatPage() {
     socket.on('reaction_update', (payload: { messageId: string; reactions: ChatMessage['reactions'] }) => {
       setMessages((prev) => prev.map((item) => (item.id === payload.messageId ? { ...item, reactions: payload.reactions ?? [] } : item)));
     });
+    socket.on('message_edited', (payload: { messageId: string; content: string; isEdited: boolean }) => {
+      setMessages((prev) => prev.map((item) => item.id === payload.messageId ? { ...item, content: payload.content, isEdited: true } : item));
+    });
+    socket.on('message_deleted', (payload: { messageId: string }) => {
+      setMessages((prev) => prev.map((item) => item.id === payload.messageId ? { ...item, content: 'This message was deleted.', isDeleted: true } : item));
+    });
     socket.on('receive_call', (payload: IncomingCall) => { setIncomingCall(payload); setCallStatus(`Incoming ${payload.callType} call`); setActiveCallType(payload.callType); });
     socket.on('accept_call', async (payload: { fromUserId: number }) => {
       setActiveCallUserId(payload.fromUserId);
@@ -436,7 +466,7 @@ export default function ChatPage() {
     event.preventDefault();
     if (!canSend || !socketRef.current) return;
     if (editingMessage) {
-      setMessages((prev) => prev.map((m) => (m.id === editingMessage.id ? { ...m, content: draft.trim(), editedLocal: true } : m)));
+      socketRef.current.emit('edit_message', { messageId: editingMessage.id, content: draft.trim() });
       setEditingMessage(null); setDraft(''); return;
     }
     socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
@@ -455,7 +485,7 @@ export default function ChatPage() {
 
   const uploadFile = async (file: File) => {
     if (!socketRef.current) { setStatus('Socket unavailable'); return; }
-    if (file.size > CLIENT_MAX_FILE_BYTES) { setStatus('File exceeds 10MB'); return; }
+    if (file.size > CLIENT_MAX_FILE_BYTES) { setStatus('File exceeds 20MB limit'); return; }
     if (!['image/', 'video/', 'application/pdf'].some((t) => file.type.startsWith(t) || file.type === t)) { setStatus('Only image, video, and PDF are allowed'); return; }
     const formData = new FormData(); formData.append('file', file);
     setUploadState('uploading'); setUploadProgress(15);
@@ -473,33 +503,56 @@ export default function ChatPage() {
   const onReact = (messageId: string, emoji: string) => { socketRef.current?.emit('add_reaction', { messageId, emoji }); };
   const onReply = (message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); };
   const onStartEdit = (message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); };
-  const onDelete = (message: ChatMessage) => { setMessages((prev) => prev.map((item) => (item.id === message.id ? { ...item, content: 'Message deleted', deletedLocal: true } : item))); };
+  const onDelete = (message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); };
 
-  const startCall = async (type: 'voice' | 'video', targetOverride?: number) => {
-    if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
-    const targetUserId = targetOverride ?? Number(callTargetUserId);
-    if (!Number.isInteger(targetUserId) || targetUserId <= 0) { setCallStatus('Select a valid target user'); return; }
-    cleanupCall(); setActiveCallType(type); activeCallTypeRef.current = type;
-    try { await ensureLocalStream(type); setActiveCallUserId(targetUserId); socketRef.current.emit('call_user', { targetUserId, roomKey: activeRoomKey, callType: type }); setCallStatus(`Calling user ${targetUserId}`); } catch { setCallStatus('Could not access media devices'); }
+  const updateStatus = (status: UserStatus) => {
+    setUserStatus(status);
+    socketRef.current?.emit('update_status', { status });
   };
 
-  const startCallByUsername = async (type: 'voice' | 'video', username: string, userId: number) => {
+const handleVoiceCall = (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
-    cleanupCall(); setActiveCallType(type); activeCallTypeRef.current = type;
-    try { 
-      await ensureLocalStream(type); 
-      setActiveCallUserId(userId); 
-      socketRef.current.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: type }); 
-      setCallStatus(`Calling ${username}...`); 
-    } catch { setCallStatus('Could not access media devices'); }
-  };
-
-  const handleVoiceCall = (userId: number, username: string) => {
-    startCallByUsername('voice', username, userId);
+    cleanupCall(); setActiveCallType('voice'); activeCallTypeRef.current = 'voice';
+    ensureLocalStream('voice').then(() => {
+      setActiveCallUserId(userId);
+      socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'voice' });
+      setCallStatus(`Calling ${username}...`);
+    }).catch(() => setCallStatus('Could not access media devices'));
   };
 
   const handleVideoCall = (userId: number, username: string) => {
-    startCallByUsername('video', username, userId);
+    if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
+    cleanupCall(); setActiveCallType('video'); activeCallTypeRef.current = 'video';
+    ensureLocalStream('video').then(() => {
+      setActiveCallUserId(userId);
+      socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'video' });
+      setCallStatus(`Calling ${username}...`);
+    }).catch(() => setCallStatus('Could not access media devices'));
+  };
+
+  const handleContactClick = async (userId: number, username: string) => {
+    const roomKey = `dm_${Math.min(userId, profile?.userId ?? 0)}_${Math.max(userId, profile?.userId ?? 0)}`;
+    const existingRoom = rooms.find(r => r.key === roomKey);
+    
+    if (!existingRoom) {
+      await authFetch(`${API_URL}/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
+      });
+      const mineResponse = await authFetch(`${API_URL}/groups/mine`);
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' })));
+      }
+    }
+    
+    setActiveSection('chats');
+    setMobileSection('chats');
+    setMobileChatOpen(true);
+    setActiveRoomKey(roomKey);
+    socketRef.current?.emit('join_room', { roomKey });
   };
 
   const acceptCall = async () => {
@@ -514,8 +567,31 @@ export default function ChatPage() {
   };
 
   const endCall = () => {
-    if (socketRef.current && activeCallUserId) socketRef.current.emit('reject_call', { targetUserId: activeCallUserId, reason: 'Call ended' });
-    cleanupCall(); setCallStatus('Call ended');
+    const callEndedAt = callStartedAt;
+    const wasActive = activeCallUserId !== null;
+    const callType = activeCallType;
+    
+    if (socketRef.current && activeCallUserId) {
+      socketRef.current.emit('reject_call', { targetUserId: activeCallUserId, reason: 'Call ended' });
+    }
+    
+    if (wasActive && callEndedAt) {
+      const duration = Math.floor((Date.now() - callEndedAt) / 1000);
+      const newCall: CallHistoryItem = {
+        id: `call_${Date.now()}`,
+        peerUserId: activeCallUserId!,
+        peerUsername: onlineUsers.find(u => u.userId === activeCallUserId)?.username || 'Unknown',
+        callType,
+        callStatus: duration > 0 ? 'completed' : 'missed',
+        duration,
+        createdAt: new Date().toISOString(),
+      };
+      setCallHistory(prev => [newCall, ...prev].slice(0, 50));
+    }
+    
+    cleanupCall(); 
+    setCallStartedAt(null);
+    setCallStatus('Call ended');
   };
 
   const toggleMute = () => {
@@ -596,6 +672,9 @@ export default function ChatPage() {
             onSelectSection={setActiveSection}
             darkMode={darkMode}
             onToggleDarkMode={() => setDarkMode((c) => !c)}
+            profile={profile}
+            userStatus={userStatus}
+            onProfileClick={() => { setActiveSection('settings'); setShowSettings(false); }}
           />
 
           <div className="hidden md:flex h-full w-[380px] lg:w-[400px] shrink-0">
@@ -622,48 +701,36 @@ export default function ChatPage() {
                   onSearchQueryChange={setContactSearchQuery}
                   onStartVoiceCall={handleVoiceCall}
                   onStartVideoCall={handleVideoCall}
+                  onContactClick={handleContactClick}
                   darkMode={darkMode}
                   currentUserId={profile?.userId ?? 0}
                 />
               </div>
-            ) : activeSection !== 'chats' ? (
-              <div className="flex-1 flex items-center justify-center p-8">
-                <div className={`rounded-2xl border p-10 text-center max-w-md ${darkMode ? 'border-slate-800 bg-slate-900' : 'border-slate-200 bg-white'} shadow-xl`}>
-                  <div className={`w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center ${darkMode ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                    {activeSection === 'calls' && (
-                      <svg className={`w-8 h-8 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                      </svg>
-                    )}
-                    {activeSection === 'settings' && (
-                      <svg className={`w-8 h-8 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                    )}
-                  </div>
-                  <p className="text-lg font-semibold capitalize mb-1">{activeSection}</p>
-                  <p className={`text-sm ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Enterprise module ready for expansion</p>
-                </div>
-              </div>
+            ) : activeSection === 'settings' && showSettings ? (
+              <SettingsView
+                darkMode={darkMode}
+                onToggleDarkMode={() => setDarkMode(!darkMode)}
+                onBack={() => setShowSettings(false)}
+                profile={profile ?? { username: '', userId: 0, role: 'user' }}
+                userStatus={userStatus}
+                onStatusChange={updateStatus}
+                apiUrl={API_URL}
+              />
+            ) : activeSection === 'settings' ? (
+              <ProfileView 
+                profile={profile ?? { userId: 0, username: '', role: 'user' }} 
+                darkMode={darkMode}
+                onOpenSettings={() => setShowSettings(true)}
+              />
+            ) : activeSection === 'calls' ? (
+              <CallsPanel
+                callHistory={callHistory}
+                darkMode={darkMode}
+                onStartVoiceCall={handleVoiceCall}
+                onStartVideoCall={handleVideoCall}
+              />
             ) : (
               <>
-                <div className="md:hidden">
-                  {!mobileChatOpen ? (
-                    <ChatList
-                      rooms={rooms}
-                      activeRoomKey={activeRoomKey}
-                      searchQuery={searchQuery}
-                      onSearchQueryChange={setSearchQuery}
-                      onOpenRoom={(roomKey) => { openRoom(roomKey); setMobileChatOpen(true); }}
-                      pinnedRoomKeys={pinnedRoomKeys}
-                      onTogglePin={togglePin}
-                      onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
-                      darkMode={darkMode}
-                    />
-                  ) : null}
-                </div>
-
                 <div className={`${mobileChatOpen ? 'flex' : 'hidden'} h-full flex-1 flex-col md:flex`}>
                   <ChatWindow
                     profile={profile}
@@ -680,26 +747,36 @@ export default function ChatPage() {
                     onDelete={onDelete}
                     headerActions={
                       <>
-                        <div className="hidden lg:flex items-center gap-2">
-                          <input
-                            value={callTargetUserId}
-                            onChange={(e) => setCallTargetUserId(e.target.value)}
-                            className={`w-20 rounded-lg border px-2 py-1.5 text-xs outline-none ${darkMode ? 'border-slate-700 bg-slate-900 text-slate-100' : 'border-slate-300 bg-white text-slate-800'}`}
-                            placeholder="User ID"
-                          />
-                          <button type="button" onClick={() => startCall('voice')} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`} title="Voice Call">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                            </svg>
-                          </button>
-                          <button type="button" onClick={() => startCall('video')} className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`} title="Video Call">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                          </button>
-                        </div>
+                        {(() => {
+                          const otherParticipant = participants.find((p) => p.userId !== profile.userId);
+                          if (!otherParticipant) return null;
+                          return (
+                            <div className="hidden lg:flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleVoiceCall(otherParticipant.userId, otherParticipant.username)}
+                                className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-100' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'}`}
+                                title={`Voice call ${otherParticipant.username}`}
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                </svg>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleVideoCall(otherParticipant.userId, otherParticipant.username)}
+                                className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-100' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'}`}
+                                title={`Video call ${otherParticipant.username}`}
+                              >
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              </button>
+                            </div>
+                          );
+                        })()}
                         {profile.role === 'admin' && (
-                          <Link href="/admin" className={`p-2 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`} title="Admin">
+                          <Link href="/admin" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-100' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'}`} title="Admin">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -710,64 +787,80 @@ export default function ChatPage() {
                     }
                     composer={
                       <div>
+                        {/* Reply banner */}
                         {replyTo && (
-                          <div className={`mb-3 flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-slate-50'}`}>
-                            <div className="flex items-center gap-2">
-                              <svg className="w-3 h-3 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                              </svg>
-                              <p>Replying to <span className="font-semibold">{replyTo.sender.username}</span></p>
-                            </div>
-                            <button type="button" onClick={() => setReplyTo(null)} className={`p-1 rounded ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-200'}`}>
+                          <div className={`mb-2 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${darkMode ? 'border-blue-500/20 bg-blue-500/8 text-blue-300' : 'border-blue-200 bg-blue-50 text-blue-700'}`}>
+                            <svg className="w-3.5 h-3.5 flex-shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                            </svg>
+                            <p className="flex-1 truncate">Replying to <span className="font-semibold">{replyTo.sender.username}</span></p>
+                            <button type="button" onClick={() => setReplyTo(null)} className="flex-shrink-0 p-0.5 rounded hover:opacity-70">
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                               </svg>
                             </button>
                           </div>
                         )}
+                        {/* Edit banner */}
                         {editingMessage && (
-                          <div className={`mb-3 flex items-center justify-between rounded-xl border px-3 py-2 text-xs ${darkMode ? 'border-indigo-500/40 bg-indigo-500/10' : 'border-indigo-200 bg-indigo-50'} ${darkMode ? 'text-indigo-100' : 'text-indigo-700'}`}>
-                            <div className="flex items-center gap-2">
-                              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                              </svg>
-                              <p>Editing message</p>
-                            </div>
-                            <button type="button" onClick={() => { setEditingMessage(null); setDraft(''); }} className={`p-1 rounded ${darkMode ? 'hover:bg-indigo-500/20' : 'hover:bg-indigo-200'}`}>
+                          <div className={`mb-2 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${darkMode ? 'border-amber-500/20 bg-amber-500/8 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
+                            <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            <p className="flex-1">Editing message</p>
+                            <button type="button" onClick={() => { setEditingMessage(null); setDraft(''); }} className="flex-shrink-0 p-0.5 rounded hover:opacity-70">
                               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                               </svg>
                             </button>
                           </div>
                         )}
+                        {/* Input row */}
                         <form className="flex items-end gap-2" onSubmit={sendMessage}>
                           <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*,application/pdf" onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadFile(file); }} />
-                          <button type="button" onClick={() => fileInputRef.current?.click()} className={`p-2.5 rounded-xl border ${darkMode ? 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <button
+                            type="button"
+                            onClick={() => fileInputRef.current?.click()}
+                            className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl border transition-colors ${darkMode ? 'border-slate-700/80 bg-slate-900 text-slate-400 hover:text-slate-200 hover:bg-slate-800' : 'border-slate-200 bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            <svg className="w-4.5 h-4.5" style={{width:'18px',height:'18px'}} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                             </svg>
                           </button>
                           <div className="relative flex-1">
-                            <input value={draft} onChange={(e) => handleDraftChange(e.target.value)} placeholder="Type a secure message..." className={`w-full rounded-2xl border px-4 py-2.5 text-sm outline-none ${darkMode ? 'border-slate-700 bg-slate-900 text-slate-100 placeholder:text-slate-500 focus:border-blue-500' : 'border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500'}`} />
+                            <input
+                              value={draft}
+                              onChange={(e) => handleDraftChange(e.target.value)}
+                              placeholder="Type a secure message..."
+                              className={`w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-900 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`}
+                            />
                             {mentionCandidates.length > 0 && (
-                              <div className={`absolute bottom-full left-0 w-60 mb-2 rounded-xl border shadow-xl ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+                              <div className={`absolute bottom-full left-0 w-56 mb-2 rounded-xl border shadow-2xl overflow-hidden ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
                                 {mentionCandidates.map((candidate) => (
-                                  <button key={candidate.userId} type="button" onClick={() => handleMentionInsert(candidate.username)} className={`block w-full px-3 py-2 text-left text-sm ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                                    @{candidate.username}
+                                  <button key={candidate.userId} type="button" onClick={() => handleMentionInsert(candidate.username)} className={`flex items-center gap-2 w-full px-3 py-2.5 text-left text-sm transition-colors ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-50'}`}>
+                                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br from-blue-500 to-indigo-600 flex-shrink-0`}>
+                                      {candidate.username.charAt(0).toUpperCase()}
+                                    </span>
+                                    <span className="font-medium">@{candidate.username}</span>
                                   </button>
                                 ))}
                               </div>
                             )}
                           </div>
-                          <button type="submit" disabled={!canSend} className="rounded-2xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <button
+                            type="submit"
+                            disabled={!canSend}
+                            className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-xl transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${canSend ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20' : darkMode ? 'bg-slate-800 text-slate-600' : 'bg-slate-100 text-slate-400'}`}
+                          >
+                            <svg className="w-4.5 h-4.5" style={{width:'18px',height:'18px'}} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                             </svg>
                           </button>
                         </form>
+                        {/* Upload progress */}
                         {uploadState === 'uploading' && (
-                          <div className={`mt-2 h-1.5 w-full overflow-hidden rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`}>
-                            <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+                          <div className={`mt-2 h-1 w-full overflow-hidden rounded-full ${darkMode ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                            <div className="h-full rounded-full bg-blue-600 transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
                           </div>
                         )}
                       </div>
@@ -775,58 +868,105 @@ export default function ChatPage() {
                   />
                 </div>
 
-                <div className={`hidden xl:flex flex-col w-72 border-l shrink-0 ${darkMode ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200 bg-white/80'}`} style={{ backdropFilter: 'blur(20px)' }}>
-                  <div className="p-4 border-b border-slate-200 dark:border-slate-800">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">Participants ({participants.length})</p>
+                <div className={`hidden xl:flex flex-col w-64 border-l shrink-0 ${darkMode ? 'border-slate-800/60 bg-slate-900/80' : 'border-slate-100 bg-white/80'}`} style={{ backdropFilter: 'blur(20px)' }}>
+                  <div className={`px-4 py-4 border-b ${darkMode ? 'border-slate-800/60' : 'border-slate-100'}`}>
+                    <p className={`text-[10px] font-bold uppercase tracking-widest ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                      Members · {participants.length}
+                    </p>
                   </div>
-                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
                     {participants.map((p) => (
-                      <div key={p.userId} className={`flex items-center justify-between rounded-xl border px-3 py-2 ${darkMode ? 'border-slate-800 bg-slate-900/50' : 'border-slate-100 bg-slate-50'}`}>
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${darkMode ? 'bg-slate-700 text-slate-300' : 'bg-slate-200 text-slate-600'}`}>
+                      <div key={p.userId} className={`flex items-center justify-between rounded-xl px-3 py-2.5 ${darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50'}`}>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold text-white bg-gradient-to-br ${['from-blue-500 to-indigo-600','from-violet-500 to-purple-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600','from-amber-500 to-orange-600'][Math.abs(p.username.charCodeAt(0)) % 5]}`}>
                             {p.username.charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <p className="text-sm font-medium">{p.username}</p>
-                            <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${roleBadgeClass(p.role)}`}>{p.role}</span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{p.username}</p>
+                            <span className={`text-[10px] font-semibold capitalize ${roleBadgeClass(p.role)}`}>{p.role}</span>
                           </div>
                         </div>
                         {canManageMembers && p.role !== 'owner' && p.username !== profile.username && (
-                          <button type="button" onClick={() => removeMember(p.username)} className="text-xs text-rose-500 hover:text-rose-400">Remove</button>
+                          <button type="button" onClick={() => removeMember(p.username)} className="text-xs text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2">
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                            </svg>
+                          </button>
                         )}
                       </div>
                     ))}
                   </div>
                   {canManageMembers && (
-                    <div className="p-3 border-t border-slate-200 dark:border-slate-800">
+                    <div className={`p-3 border-t ${darkMode ? 'border-slate-800/60' : 'border-slate-100'}`}>
                       <div className="flex gap-2">
-                        <input value={memberUsernameInput} onChange={(e) => setMemberUsernameInput(e.target.value)} placeholder="add username" className={`flex-1 rounded-lg border px-2.5 py-1.5 text-xs outline-none ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-300 bg-white'}`} />
-                        <button type="button" onClick={addMember} className="rounded-lg bg-gradient-to-r from-blue-600 to-cyan-500 px-2.5 py-1.5 text-xs font-medium text-white">Add</button>
+                        <input
+                          value={memberUsernameInput}
+                          onChange={(e) => setMemberUsernameInput(e.target.value)}
+                          placeholder="Add username..."
+                          className={`flex-1 rounded-lg border px-2.5 py-2 text-xs outline-none transition-colors ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-200 placeholder:text-slate-600 focus:border-blue-500/60' : 'border-slate-200 bg-slate-50 placeholder:text-slate-400 focus:border-blue-400'}`}
+                        />
+                        <button type="button" onClick={addMember} className="rounded-lg bg-blue-600 hover:bg-blue-500 px-3 py-2 text-xs font-semibold text-white transition-colors">
+                          Add
+                        </button>
                       </div>
                     </div>
                   )}
                 </div>
 
-                <button type="button" onClick={() => startCall('voice')} className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 p-3.5 text-white shadow-lg shadow-emerald-500/30 md:hidden active:scale-95">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </button>
+                {participants.find((p) => p.userId !== profile.userId) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const other = participants.find((p) => p.userId !== profile.userId);
+                      if (other) handleVoiceCall(other.userId, other.username);
+                    }}
+                    className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 p-3.5 text-white shadow-lg shadow-emerald-500/30 md:hidden active:scale-95"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                  </button>
+                )}
               </>
             )}
           </div>
         </div>
 
-        <div className={`fixed bottom-0 left-0 right-0 z-20 grid grid-cols-4 border-t md:hidden ${darkMode ? 'border-slate-800 bg-slate-950/95' : 'border-slate-200 bg-white/95'}`} style={{ backdropFilter: 'blur(20px)' }}>
-          {(['chats', 'calls', 'contacts', 'settings'] as AppSection[]).map((section) => (
-            <button key={section} type="button" onClick={() => { setMobileSection(section); setActiveSection(section); if (section !== 'chats') setMobileChatOpen(false); }} className={`flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors ${mobileSection === section ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500'}`}>
-              {section === 'chats' && <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>}
-              {section === 'calls' && <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>}
-              {section === 'contacts' && <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>}
-              {section === 'settings' && <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-              <span className="capitalize">{section}</span>
-            </button>
-          ))}
+        {/* Mobile bottom navigation */}
+        <div className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${darkMode ? 'border-slate-800/80 bg-slate-950/95' : 'border-slate-200 bg-white/98'}`} style={{ backdropFilter: 'blur(20px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          {([
+            { id: 'chats' as AppSection, label: 'Chats', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> },
+            { id: 'calls' as AppSection, label: 'Calls', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg> },
+            { id: 'contacts' as AppSection, label: 'People', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
+            { id: 'settings' as AppSection, label: 'Profile', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
+          ]).map(({ id, label, icon }) => {
+            const isActive = mobileSection === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => { setMobileSection(id); setActiveSection(id); if (id !== 'chats') setMobileChatOpen(false); }}
+                className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-semibold transition-all duration-150 ${
+                  isActive
+                    ? darkMode ? 'text-blue-400' : 'text-blue-600'
+                    : darkMode ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600'
+                }`}
+              >
+                {/* Active indicator dot */}
+                {isActive && (
+                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+                )}
+                {/* Badge for chats */}
+                {id === 'chats' && unreadTotal > 0 && !isActive && (
+                  <span className="absolute top-1.5 right-[calc(50%-18px)] w-4 h-4 flex items-center justify-center rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                    {unreadTotal > 9 ? '9+' : unreadTotal}
+                  </span>
+                )}
+                {icon}
+                <span>{label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -856,21 +996,42 @@ export default function ChatPage() {
 
       {isCreateGroupModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsCreateGroupModalOpen(false)} />
-          <div className={`relative w-full max-w-md rounded-2xl border p-5 shadow-2xl ${darkMode ? 'border-slate-700 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold">Create Group</h2>
-              <button type="button" onClick={() => setIsCreateGroupModalOpen(false)} className={`p-1.5 rounded-lg ${darkMode ? 'hover:bg-slate-800' : 'hover:bg-slate-100'}`}>
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsCreateGroupModalOpen(false)} />
+          <div className={`relative w-full max-w-md rounded-2xl border shadow-2xl scale-in ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+            {/* Modal header */}
+            <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-600/15 flex items-center justify-center">
+                  <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold">Create Group</h2>
+                  <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Set up a new group conversation</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setIsCreateGroupModalOpen(false)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="space-y-3">
-              <input value={newGroupKey} onChange={(e) => setNewGroupKey(e.target.value)} placeholder="Group key (unique)" className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${darkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-slate-50'}`} />
-              <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="Group name (optional)" className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${darkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-slate-50'}`} />
-              <input value={newGroupUsers} onChange={(e) => setNewGroupUsers(e.target.value)} placeholder="Participants: user1, user2" className={`w-full rounded-xl border px-3 py-2.5 text-sm outline-none ${darkMode ? 'border-slate-700 bg-slate-950 text-slate-100' : 'border-slate-300 bg-slate-50'}`} />
-              <button type="button" onClick={createGroup} className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-2.5 text-sm font-medium text-white shadow-lg shadow-blue-500/25 hover:from-blue-500 hover:to-cyan-400 transition-all">
+            {/* Modal body */}
+            <div className="px-5 py-5 space-y-3">
+              <div>
+                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Group Key *</label>
+                <input value={newGroupKey} onChange={(e) => setNewGroupKey(e.target.value)} placeholder="e.g. team-alpha" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Display Name</label>
+                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="e.g. Team Alpha" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
+              </div>
+              <div>
+                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Participants</label>
+                <input value={newGroupUsers} onChange={(e) => setNewGroupUsers(e.target.value)} placeholder="user1, user2, user3" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
+              </div>
+              <button type="button" onClick={createGroup} className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-3.5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition-all active:scale-[0.98]">
                 Create Group
               </button>
             </div>

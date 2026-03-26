@@ -1,5 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { hash, hashSync } from 'bcryptjs';
+import { hash } from 'bcryptjs';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type UserRecord = {
   userId: number;
@@ -10,24 +11,14 @@ export type UserRecord = {
 
 @Injectable()
 export class UsersService implements OnModuleInit {
-  private nextUserId = 2;
-  private readonly users: UserRecord[];
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor() {
+  async onModuleInit() {
     const adminUsername = process.env.INIT_ADMIN_USERNAME ?? 'admin';
     const adminPassword = process.env.INIT_ADMIN_PASSWORD ?? 'Admin123!';
 
-    this.users = [
-      {
-        userId: 1,
-        username: adminUsername,
-        password: hashSync(adminPassword, 12),
-        role: 'admin',
-      },
-    ];
-  }
+    await this.ensureUser({ username: adminUsername, password: adminPassword, role: 'admin' });
 
-  async onModuleInit() {
     const quickUsers = [
       { username: 'user1', password: 'User123!', role: 'user' as const },
       { username: 'user2', password: 'User123!', role: 'user' as const },
@@ -36,30 +27,57 @@ export class UsersService implements OnModuleInit {
     ];
 
     for (const user of quickUsers) {
-      if (!this.findOne(user.username)) {
-        await this.createUser(user);
-      }
+      await this.ensureUser(user);
     }
   }
 
-  findOne(username: string): UserRecord | undefined {
-    return this.users.find((user) => user.username === username);
+  private toUserRecord(user: { id: number; username: string; password: string; role: 'admin' | 'user' }): UserRecord {
+    return {
+      userId: user.id,
+      username: user.username,
+      password: user.password,
+      role: user.role,
+    };
   }
 
-  findOneById(userId: number): UserRecord | undefined {
-    return this.users.find((user) => user.userId === userId);
+  private async ensureUser(input: { username: string; password: string; role: 'admin' | 'user' }) {
+    const existing = await this.prisma.user.findUnique({ where: { username: input.username } });
+    if (existing) return;
+
+    await this.prisma.user.create({
+      data: {
+        username: input.username,
+        password: await hash(input.password, 12),
+        role: input.role,
+      },
+    });
   }
 
-  findSafeById(userId: number): Omit<UserRecord, 'password'> | undefined {
-    const user = this.users.find((candidate) => candidate.userId === userId);
+  async findOne(username: string): Promise<UserRecord | undefined> {
+    const user = await this.prisma.user.findUnique({ where: { username } });
+    return user ? this.toUserRecord(user) : undefined;
+  }
+
+  async findOneById(userId: number): Promise<UserRecord | undefined> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    return user ? this.toUserRecord(user) : undefined;
+  }
+
+  async findSafeById(userId: number): Promise<Omit<UserRecord, 'password'> | undefined> {
+    const user = await this.findOneById(userId);
     if (!user) return undefined;
 
     const { password: _password, ...safeUser } = user;
     return safeUser;
   }
 
-  findAllSafe(): Array<Omit<UserRecord, 'password'>> {
-    return this.users.map(({ password: _password, ...safeUser }) => safeUser);
+  async findAllSafe(): Promise<Array<Omit<UserRecord, 'password'>>> {
+    const users = await this.prisma.user.findMany({
+      select: { id: true, username: true, role: true },
+      orderBy: { id: 'asc' },
+    });
+
+    return users.map((user) => ({ userId: user.id, username: user.username, role: user.role }));
   }
 
   async createUser(input: {
@@ -67,52 +85,69 @@ export class UsersService implements OnModuleInit {
     password: string;
     role?: 'admin' | 'user';
   }): Promise<Omit<UserRecord, 'password'>> {
-    const user = {
-      userId: this.nextUserId,
-      username: input.username,
-      password: await hash(input.password, 12),
-      role: input.role ?? 'user',
-    } satisfies UserRecord;
+    const user = await this.prisma.user.create({
+      data: {
+        username: input.username,
+        password: await hash(input.password, 12),
+        role: input.role ?? 'user',
+      },
+    });
 
-    this.nextUserId += 1;
-    this.users.push(user);
-
-    const { password: _password, ...safeUser } = user;
+    const { password: _password, ...safeUser } = this.toUserRecord(user);
     return safeUser;
   }
 
-  updateRole(username: string, role: 'admin' | 'user') {
-    const user = this.findOne(username);
-    if (!user) {
-      return undefined;
-    }
+  async updateRole(username: string, role: 'admin' | 'user') {
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (!existing) return undefined;
 
-    user.role = role;
-    const { password: _password, ...safeUser } = user;
+    const updated = await this.prisma.user.update({
+      where: { id: existing.id },
+      data: { role },
+    });
+
+    const { password: _password, ...safeUser } = this.toUserRecord(updated);
     return safeUser;
   }
 
-  deleteUser(username: string) {
-    const index = this.users.findIndex((candidate) => candidate.username === username);
-    if (index < 0) {
-      return false;
-    }
+  async deleteUser(username: string) {
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (!existing) return false;
 
-    this.users.splice(index, 1);
+    await this.prisma.user.delete({ where: { id: existing.id } });
     return true;
   }
 
-  searchUsers(query: string): Array<{ userId: number; username: string; role: 'admin' | 'user' }> {
-    const lowerQuery = query.toLowerCase();
-    return this.users
-      .filter((user) => user.username.toLowerCase().includes(lowerQuery))
-      .map(({ password: _password, ...safeUser }) => safeUser)
-      .slice(0, 10);
+  async searchUsers(query: string): Promise<Array<{ userId: number; username: string; role: 'admin' | 'user' }>> {
+    const users = await this.prisma.user.findMany({
+      where: { username: { contains: query, mode: 'insensitive' } },
+      select: { id: true, username: true, role: true },
+      take: 10,
+      orderBy: { username: 'asc' },
+    });
+
+    return users.map((user) => ({ userId: user.id, username: user.username, role: user.role }));
   }
 
-  findByUsername(username: string): { userId: number; username: string; role: 'admin' | 'user' } | undefined {
-    const user = this.users.find((u) => u.username.toLowerCase() === username.toLowerCase());
+  async findByUsername(
+    username: string,
+  ): Promise<{ userId: number; username: string; role: 'admin' | 'user' } | undefined> {
+    const user = await this.prisma.user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+      select: { id: true, username: true, role: true },
+    });
     if (!user) return undefined;
-    return { userId: user.userId, username: user.username, role: user.role };
+    return { userId: user.id, username: user.username, role: user.role };
+  }
+
+  async updatePassword(username: string, newPassword: string): Promise<boolean> {
+    const existing = await this.prisma.user.findUnique({ where: { username } });
+    if (!existing) return false;
+
+    await this.prisma.user.update({
+      where: { id: existing.id },
+      data: { password: await hash(newPassword, 12) },
+    });
+    return true;
   }
 }

@@ -30,6 +30,8 @@ export class EventsService {
     row: {
       id: string;
       content: string;
+      isEdited: boolean;
+      isDeleted: boolean;
       room: { key: string };
       senderUserId: number;
       senderUsername: string;
@@ -60,6 +62,8 @@ export class EventsService {
         username: row.senderUsername,
       },
       content: row.content,
+      isEdited: row.isEdited,
+      isDeleted: row.isDeleted,
       createdAt: row.createdAt,
       deliveredAt: row.deliveredAt,
       readAt: row.readAt,
@@ -334,6 +338,42 @@ export class EventsService {
       status: receipt.status,
       createdAt: receipt.createdAt,
     };
+  }
+
+  async editMessage(input: { messageId: string; content: string; userId: number }) {
+    const message = await this.prisma.chatMessage.findUnique({
+      where: { id: input.messageId },
+      include: { room: { select: { key: true } } },
+    });
+
+    if (!message || message.senderUserId !== input.userId || message.isDeleted) {
+      return null;
+    }
+
+    const updated = await this.prisma.chatMessage.update({
+      where: { id: input.messageId },
+      data: { content: input.content, isEdited: true },
+      include: { room: { select: { key: true } } },
+    });
+
+    return { id: updated.id, content: updated.content, roomKey: updated.room.key };
+  }
+
+  async deleteMessage(input: { messageId: string; userId: number; role: string }) {
+    const message = await this.prisma.chatMessage.findUnique({
+      where: { id: input.messageId },
+      include: { room: { select: { key: true } } },
+    });
+
+    if (!message) return null;
+    if (message.senderUserId !== input.userId && input.role !== 'admin') return null;
+
+    await this.prisma.chatMessage.update({
+      where: { id: input.messageId },
+      data: { isDeleted: true, content: 'This message was deleted.' },
+    });
+
+    return { roomKey: message.room.key };
   }
 
   async toggleReaction(input: { messageId: string; emoji: string; user: Sender }) {

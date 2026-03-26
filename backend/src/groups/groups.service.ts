@@ -52,7 +52,7 @@ export class GroupsService {
       return null;
     }
 
-    const liveUser = this.usersService.findOne(normalized);
+    const liveUser = await this.usersService.findOne(normalized);
     if (liveUser) {
       return {
         userId: liveUser.userId,
@@ -118,7 +118,7 @@ export class GroupsService {
     return room;
   }
 
-  private toParticipantView(
+  private async toParticipantView(
     group: { ownerUserId: number | null },
     member: {
       id: string;
@@ -128,7 +128,7 @@ export class GroupsService {
       joinedAt: Date;
       updatedAt: Date;
     },
-  ): ParticipantView {
+  ): Promise<ParticipantView> {
     if (group.ownerUserId === member.userId) {
       return {
         ...member,
@@ -136,7 +136,7 @@ export class GroupsService {
       };
     }
 
-    const knownUser = this.usersService.findOne(member.username);
+    const knownUser = await this.usersService.findOne(member.username);
     if (knownUser?.role === 'admin') {
       return {
         ...member,
@@ -224,7 +224,7 @@ export class GroupsService {
       name: created.name,
       ownerUserId: created.ownerUserId,
       ownerUsername: created.ownerUsername,
-      participants: created.members.map((member) => this.toParticipantView(created, member)),
+      participants: await Promise.all(created.members.map((member) => this.toParticipantView(created, member))),
     };
 
     this.emitGroupUpdate('group_created', groupPayload, created.members.map(m => m.userId));
@@ -290,7 +290,7 @@ export class GroupsService {
         ownerUserId: group.ownerUserId,
         ownerUsername: group.ownerUsername,
       },
-      participants: group.members.map((member) => this.toParticipantView(group, member)),
+      participants: await Promise.all(group.members.map((member) => this.toParticipantView(group, member))),
       canManageMembers: user.role === 'admin' || group.ownerUserId === user.userId,
     };
   }

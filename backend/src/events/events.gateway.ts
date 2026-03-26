@@ -26,9 +26,12 @@ type AuthenticatedUser = {
   role: 'admin' | 'user';
 };
 
+type UserStatus = 'available' | 'dnd' | 'invisible';
+
 type OnlineUser = {
   userId: number;
   username: string;
+  status: UserStatus;
 };
 
 const allowedFrontendOrigins = [
@@ -51,6 +54,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server!: Server;
 
   private readonly socketsByUserId = new Map<number, Set<string>>();
+  private readonly userStatusMap = new Map<number, UserStatus>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -259,11 +263,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (body?.targetUserId) {
       targetUserId = Number(body.targetUserId);
-      const targetUser = this.usersService.findOneById(targetUserId);
+      const targetUser = await this.usersService.findOneById(targetUserId);
       targetUsername = targetUser?.username;
     } else if (body?.targetUsername) {
       targetUsername = body.targetUsername.trim();
-      const targetUser = this.usersService.findByUsername(targetUsername);
+      const targetUser = await this.usersService.findByUsername(targetUsername);
       targetUserId = targetUser?.userId;
     }
 
@@ -380,6 +384,71 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
+  @SubscribeMessage('edit_message')
+  async handleEditMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { messageId?: string; content?: string },
+  ) {
+    const messageId = body?.messageId?.trim();
+    const content = body?.content?.trim();
+    if (!messageId || !content) {
+      client.emit('error', 'messageId and content are required');
+      return;
+    }
+
+    const user = this.getUser(client);
+    const result = await this.eventsService.editMessage({ messageId, content, userId: user.userId });
+    if (!result) {
+      client.emit('error', 'Cannot edit this message');
+      return;
+    }
+
+    this.server.to(result.roomKey).emit('message_edited', {
+      messageId: result.id,
+      content: result.content,
+      isEdited: true,
+    });
+  }
+
+  @SubscribeMessage('delete_message')
+  async handleDeleteMessage(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { messageId?: string },
+  ) {
+    const messageId = body?.messageId?.trim();
+    if (!messageId) {
+      client.emit('error', 'messageId is required');
+      return;
+    }
+
+    const user = this.getUser(client);
+    const result = await this.eventsService.deleteMessage({
+      messageId,
+      userId: user.userId,
+      role: user.role,
+    });
+
+    if (!result) {
+      client.emit('error', 'Cannot delete this message');
+      return;
+    }
+
+    this.server.to(result.roomKey).emit('message_deleted', { messageId });
+  }
+
+  @SubscribeMessage('update_status')
+  handleUpdateStatus(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { status?: UserStatus },
+  ) {
+    const status = body?.status;
+    if (!status || !['available', 'dnd', 'invisible'].includes(status)) return;
+
+    const user = this.getUser(client);
+    this.userStatusMap.set(user.userId, status);
+    this.emitOnlineUsers();
+  }
+
   private getUser(client: Socket): AuthenticatedUser {
     return client.data.user as AuthenticatedUser;
   }
@@ -415,21 +484,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const onlineUsers: OnlineUser[] = [];
 
     for (const [userId, socketIds] of this.socketsByUserId.entries()) {
-      if (socketIds.size === 0) {
-        continue;
-      }
+      if (socketIds.size === 0) continue;
+
+      const status = this.userStatusMap.get(userId) ?? 'available';
+      if (status === 'invisible') continue;
 
       const firstSocketId = [...socketIds][0];
       const socket = this.server.sockets.sockets.get(firstSocketId);
       const user = socket?.data?.user as AuthenticatedUser | undefined;
-      if (!user) {
-        continue;
-      }
+      if (!user) continue;
 
-      onlineUsers.push({
-        userId,
-        username: user.username,
-      });
+      onlineUsers.push({ userId, username: user.username, status });
     }
 
     onlineUsers.sort((a, b) => a.username.localeCompare(b.username));

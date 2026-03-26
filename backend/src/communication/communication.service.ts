@@ -21,8 +21,10 @@ export class CommunicationService {
     allowed: boolean;
     bidirectional?: boolean;
   }) {
-    const from = this.usersService.findOne(input.fromUsername);
-    const to = this.usersService.findOne(input.toUsername);
+    const [from, to] = await Promise.all([
+      this.usersService.findOne(input.fromUsername),
+      this.usersService.findOne(input.toUsername),
+    ]);
 
     if (!from || !to) {
       throw new NotFoundException('Both users must exist');

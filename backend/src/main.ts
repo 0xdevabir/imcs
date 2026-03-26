@@ -13,6 +13,7 @@ const allowedFrontendOrigins = [
   /^https?:\/\/10\.\d+\.\d+\.\d+:\d+$/,
   /^https?:\/\/172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+:\d+$/,
   /^https:\/\/[a-z0-9-]+\.ngrok(-free)?\.(app|dev)$/i,
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i,
 ];
 
 async function bootstrap() {

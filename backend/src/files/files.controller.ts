@@ -48,7 +48,7 @@ export class FilesController {
         callback(null, true);
       },
       limits: {
-        fileSize: Number(process.env.MAX_UPLOAD_SIZE_MB ?? 10) * 1024 * 1024,
+        fileSize: Number(process.env.MAX_UPLOAD_SIZE_MB ?? 20) * 1024 * 1024,
       },
     }),
   )

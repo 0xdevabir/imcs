@@ -28,7 +28,7 @@ export class UsersController {
   @Post()
   @Roles('admin')
   async createUser(@Body() body: CreateUserDto) {
-    if (this.usersService.findOne(body.username)) {
+    if (await this.usersService.findOne(body.username)) {
       throw new ConflictException('Username already exists');
     }
 
@@ -37,12 +37,12 @@ export class UsersController {
 
   @Get()
   @Roles('admin')
-  listUsers() {
+  async listUsers() {
     return this.usersService.findAllSafe();
   }
 
   @Get('search')
-  searchUsers(@Query('q') query: string) {
+  async searchUsers(@Query('q') query: string) {
     if (!query || query.trim().length < 2) {
       return [];
     }
@@ -50,13 +50,13 @@ export class UsersController {
   }
 
   @Get('all')
-  getAllUsers() {
+  async getAllUsers() {
     return this.usersService.findAllSafe();
   }
 
   @Get(':username')
-  getUserByUsername(@Param('username') username: string) {
-    const user = this.usersService.findOne(username);
+  async getUserByUsername(@Param('username') username: string) {
+    const user = await this.usersService.findOne(username);
     if (!user) {
       throw new NotFoundException('User not found');
     }
@@ -65,7 +65,7 @@ export class UsersController {
 
   @Patch(':username/role')
   @Roles('admin')
-  updateRole(
+  async updateRole(
     @Param('username') username: string,
     @Body() body: UpdateUserRoleDto,
     @Request() request: { user: { username: string } },
@@ -74,7 +74,7 @@ export class UsersController {
       throw new BadRequestException('You cannot remove your own admin role');
     }
 
-    const updated = this.usersService.updateRole(username, body.role);
+    const updated = await this.usersService.updateRole(username, body.role);
     if (!updated) {
       throw new NotFoundException('User not found');
     }
@@ -84,7 +84,7 @@ export class UsersController {
 
   @Delete(':username')
   @Roles('admin')
-  deleteUser(
+  async deleteUser(
     @Param('username') username: string,
     @Request() request: { user: { username: string } },
   ) {
@@ -92,7 +92,7 @@ export class UsersController {
       throw new BadRequestException('You cannot delete your own account');
     }
 
-    const deleted = this.usersService.deleteUser(username);
+    const deleted = await this.usersService.deleteUser(username);
     if (!deleted) {
       throw new NotFoundException('User not found');
     }

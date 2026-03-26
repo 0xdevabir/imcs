@@ -15,6 +15,7 @@ import { SettingsView } from '@/components/profile/SettingsView';
 import {
   AppSection,
   CallHistoryItem,
+  CallPeer,
   ChatMessage,
   GroupParticipant,
   GroupSummary,
@@ -129,7 +130,9 @@ export default function ChatPage() {
   const [userStatus, setUserStatus] = useState<UserStatus>('available');
 
   const [incomingCall, setIncomingCall] = useState<IncomingCall | null>(null);
-  const [activeCallUserId, setActiveCallUserId] = useState<number | null>(null);
+  const [callPeers, setCallPeers] = useState<CallPeer[]>([]);
+  const [activeCallRoomKey, setActiveCallRoomKey] = useState<string | null>(null);
+  const [isCallActive, setIsCallActive] = useState(false);
   const [activeCallType, setActiveCallType] = useState<'voice' | 'video'>('video');
   const [callStatus, setCallStatus] = useState('idle');
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null);
@@ -150,13 +153,16 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const touchStartX = useRef<number | null>(null);
-  const peerRef = useRef<RTCPeerConnection | null>(null);
+  // One RTCPeerConnection per remote participant (key = userId)
+  const peersRef = useRef<Map<number, RTCPeerConnection>>(new Map());
+  // One MediaStream per remote participant
+  const remoteStreamsRef = useRef<Map<number, MediaStream>>(new Map());
+  // Buffered ICE candidates per participant (before remote description is set)
+  const pendingCandidatesRef = useRef<Map<number, RTCIceCandidateInit[]>>(new Map());
   const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteStreamRef = useRef<MediaStream | null>(null);
-  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
-  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const activeCallTypeRef = useRef<'voice' | 'video'>('video');
+  const activeCallRoomKeyRef = useRef<string | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
@@ -317,19 +323,40 @@ export default function ChatPage() {
 
   const cleanupCall = () => {
     if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
-    if (peerRef.current) { peerRef.current.ontrack = null; peerRef.current.onicecandidate = null; peerRef.current.onconnectionstatechange = null; peerRef.current.oniceconnectionstatechange = null; peerRef.current.close(); peerRef.current = null; }
+    Array.from(peersRef.current.values()).forEach(peer => {
+      peer.ontrack = null; peer.onicecandidate = null;
+      peer.onconnectionstatechange = null; peer.oniceconnectionstatechange = null;
+      peer.close();
+    });
+    peersRef.current.clear();
+    Array.from(remoteStreamsRef.current.values()).forEach(stream => stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()));
+    remoteStreamsRef.current.clear();
+    pendingCandidatesRef.current.clear();
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
-    if (remoteStreamRef.current) { remoteStreamRef.current.getTracks().forEach(t => t.stop()); remoteStreamRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
-    pendingCandidatesRef.current = [];
     setLocalStream(null);
-    setActiveCallUserId(null);
+    setCallPeers([]);
+    setActiveCallRoomKey(null);
+    activeCallRoomKeyRef.current = null;
+    setIsCallActive(false);
     setIncomingCall(null);
     setCallStatus('idle');
     setIsMuted(false);
     setIsCameraOff(false);
     setIsScreenSharing(false);
+  };
+
+  const removePeer = (userId: number) => {
+    const peer = peersRef.current.get(userId);
+    if (peer) {
+      peer.ontrack = null; peer.onicecandidate = null;
+      peer.onconnectionstatechange = null; peer.oniceconnectionstatechange = null;
+      peer.close(); peersRef.current.delete(userId);
+    }
+    const stream = remoteStreamsRef.current.get(userId);
+    if (stream) { stream.getTracks().forEach(t => t.stop()); remoteStreamsRef.current.delete(userId); }
+    pendingCandidatesRef.current.delete(userId);
+    setCallPeers(prev => prev.filter(p => p.userId !== userId));
   };
 
   const ensureLocalStream = async (type: 'voice' | 'video') => {
@@ -342,20 +369,23 @@ export default function ChatPage() {
     return localStreamRef.current!;
   };
 
-  const ensurePeer = (targetUserId: number) => {
-    if (peerRef.current) return peerRef.current;
+  const ensurePeer = (targetUserId: number, targetUsername?: string) => {
+    if (peersRef.current.has(targetUserId)) return peersRef.current.get(targetUserId)!;
     const peer = new RTCPeerConnection(RTC_CONFIG);
-    remoteStreamRef.current = new MediaStream();
+    const remoteStream = new MediaStream();
+    remoteStreamsRef.current.set(targetUserId, remoteStream);
+
     peer.ontrack = (event) => {
-      if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream();
-      const streams = event.streams;
-      const src = streams && streams.length > 0 ? streams[0] : null;
+      const stream = remoteStreamsRef.current.get(targetUserId);
+      if (!stream) return;
+      const src = event.streams?.[0];
       if (src) {
-        src.getTracks().forEach(t => { if (!remoteStreamRef.current!.getTracks().includes(t)) remoteStreamRef.current!.addTrack(t); });
+        src.getTracks().forEach(t => { if (!stream.getTracks().includes(t)) stream.addTrack(t); });
       } else {
-        if (!remoteStreamRef.current!.getTracks().includes(event.track)) remoteStreamRef.current!.addTrack(event.track);
+        if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
       }
-      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      // Push the live stream into callPeers so VideoGrid re-renders with video
+      setCallPeers(prev => prev.map(p => p.userId === targetUserId ? { ...p, stream } : p));
     };
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -363,20 +393,25 @@ export default function ChatPage() {
     };
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
-      if (state === 'connected') { setCallStatus('In call'); }
+      if (state === 'connected') {
+        setCallStatus('In call');
+        setCallStartedAt(prev => prev ?? Date.now());
+      }
       if (state === 'failed') {
         setCallStatus('Reconnecting...');
-        try { peer.restartIce(); } catch { cleanupCall(); setCallStatus('Call failed'); }
+        try { peer.restartIce(); } catch { removePeer(targetUserId); }
       }
       if (state === 'disconnected') { setCallStatus('Connection interrupted...'); }
     };
     peer.oniceconnectionstatechange = () => {
-      if (peer.iceConnectionState === 'failed') {
-        try { peer.restartIce(); } catch { /* handled by onconnectionstatechange */ }
-      }
+      if (peer.iceConnectionState === 'failed') { try { peer.restartIce(); } catch { /* no-op */ } }
     };
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => peer.addTrack(t, localStreamRef.current!));
-    peerRef.current = peer;
+    peersRef.current.set(targetUserId, peer);
+    // Ensure this peer appears in callPeers (stream arrives later via ontrack)
+    if (targetUsername) {
+      setCallPeers(prev => prev.some(p => p.userId === targetUserId) ? prev : [...prev, { userId: targetUserId, username: targetUsername, stream: null }]);
+    }
     return peer;
   };
 
@@ -464,39 +499,87 @@ export default function ChatPage() {
         setMobileChatOpen(false);
       }
     });
-    socket.on('accept_call', async (payload: { fromUserId: number }) => {
+    // Legacy 1-to-1 accept_call (kept for backward compat)
+    socket.on('accept_call', async (payload: { fromUserId: number; fromUsername?: string }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
-      setActiveCallUserId(payload.fromUserId);
-      setCallStatus('Call accepted. Negotiating...');
+      const username = payload.fromUsername ?? `User ${payload.fromUserId}`;
+      setCallStatus('Negotiating...');
       try {
         await ensureLocalStream(activeCallTypeRef.current);
-        const peer = ensurePeer(payload.fromUserId);
+        const peer = ensurePeer(payload.fromUserId, username);
         const isVideo = activeCallTypeRef.current === 'video';
         const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
         await peer.setLocalDescription(offer);
         socket.emit('offer', { targetUserId: payload.fromUserId, sdp: offer });
       } catch { setCallStatus('Could not start call media'); }
     });
+
     socket.on('reject_call', (payload: { reason?: string }) => { cleanupCall(); setCallStatus(payload.reason ?? 'Call ended'); });
-    socket.on('offer', async (payload: { fromUserId: number; sdp: RTCSessionDescriptionInit }) => {
-      setActiveCallUserId(payload.fromUserId);
+
+    // An existing participant creates an offer when a new user joins
+    socket.on('user_joined_call', async (payload: { userId: number; username: string; callType: 'voice' | 'video' }) => {
+      const { userId, username } = payload;
       setCallStatus('Connecting...');
-      try { await ensureLocalStream(activeCallTypeRef.current); const peer = ensurePeer(payload.fromUserId); await peer.setRemoteDescription(new RTCSessionDescription(payload.sdp)); for (const c of pendingCandidatesRef.current) await peer.addIceCandidate(new RTCIceCandidate(c)); pendingCandidatesRef.current = []; const answer = await peer.createAnswer(); await peer.setLocalDescription(answer); socket.emit('answer', { targetUserId: payload.fromUserId, sdp: answer }); setCallStatus('In call'); setCallStartedAt(Date.now()); } catch { setCallStatus('Failed to answer call'); }
-    });
-    socket.on('answer', async (payload: { sdp: RTCSessionDescriptionInit }) => {
-      if (!peerRef.current) return;
       try {
-        await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        for (const c of pendingCandidatesRef.current) {
-          try { await peerRef.current?.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore stale candidates */ }
-        }
-        pendingCandidatesRef.current = [];
+        await ensureLocalStream(activeCallTypeRef.current);
+        const peer = ensurePeer(userId, username);
+        const isVideo = activeCallTypeRef.current === 'video';
+        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
+        await peer.setLocalDescription(offer);
+        socket.emit('offer', { targetUserId: userId, sdp: offer });
+      } catch { setCallStatus('Could not connect to ' + username); }
+    });
+
+    // Who's already in the call when we join
+    socket.on('call_participants', (payload: { participants: { userId: number; username: string }[] }) => {
+      for (const { userId, username } of payload.participants) {
+        setCallPeers(prev => prev.some(p => p.userId === userId) ? prev : [...prev, { userId, username, stream: null }]);
+      }
+    });
+
+    socket.on('user_left_call', (payload: { userId: number }) => { removePeer(payload.userId); });
+
+    socket.on('offer', async (payload: { fromUserId: number; fromUsername?: string; sdp: RTCSessionDescriptionInit }) => {
+      const { fromUserId, fromUsername, sdp } = payload;
+      setCallStatus('Connecting...');
+      try {
+        await ensureLocalStream(activeCallTypeRef.current);
+        const peer = ensurePeer(fromUserId, fromUsername);
+        await peer.setRemoteDescription(new RTCSessionDescription(sdp));
+        const pending = pendingCandidatesRef.current.get(fromUserId) ?? [];
+        for (const c of pending) { try { await peer.addIceCandidate(new RTCIceCandidate(c)); } catch { /* stale */ } }
+        pendingCandidatesRef.current.delete(fromUserId);
+        const answer = await peer.createAnswer();
+        await peer.setLocalDescription(answer);
+        socket.emit('answer', { targetUserId: fromUserId, sdp: answer });
         setCallStatus('In call');
-        setCallStartedAt(Date.now());
+        setCallStartedAt(prev => prev ?? Date.now());
+      } catch { setCallStatus('Failed to answer call'); }
+    });
+
+    socket.on('answer', async (payload: { fromUserId: number; sdp: RTCSessionDescriptionInit }) => {
+      const { fromUserId, sdp } = payload;
+      const peer = peersRef.current.get(fromUserId);
+      if (!peer) return;
+      try {
+        await peer.setRemoteDescription(new RTCSessionDescription(sdp));
+        const pending = pendingCandidatesRef.current.get(fromUserId) ?? [];
+        for (const c of pending) { try { await peer.addIceCandidate(new RTCIceCandidate(c)); } catch { /* stale */ } }
+        pendingCandidatesRef.current.delete(fromUserId);
+        setCallStatus('In call');
+        setCallStartedAt(prev => prev ?? Date.now());
       } catch { setCallStatus('Failed to finalize call'); }
     });
-    socket.on('ice_candidate', async (payload: { candidate: RTCIceCandidateInit }) => {
-      if (peerRef.current?.remoteDescription) { try { await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch { setStatus('Failed to process ICE candidate'); } } else { pendingCandidatesRef.current.push(payload.candidate); }
+
+    socket.on('ice_candidate', async (payload: { fromUserId: number; candidate: RTCIceCandidateInit }) => {
+      const { fromUserId, candidate } = payload;
+      const peer = peersRef.current.get(fromUserId);
+      if (peer?.remoteDescription) {
+        try { await peer.addIceCandidate(new RTCIceCandidate(candidate)); } catch { /* stale */ }
+      } else {
+        if (!pendingCandidatesRef.current.has(fromUserId)) pendingCandidatesRef.current.set(fromUserId, []);
+        pendingCandidatesRef.current.get(fromUserId)!.push(candidate);
+      }
     });
     socket.on('error', (message: string) => { setStatus(message); });
     socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
@@ -611,11 +694,14 @@ const handleVoiceCall = (userId: number, username: string) => {
       setMobileSection('calls');
       setMobileChatOpen(false);
     }
+    const roomKey = activeRoomRef.current;
     cleanupCall(); setActiveCallType('voice'); activeCallTypeRef.current = 'voice';
     ensureLocalStream('voice').then(() => {
-      setActiveCallUserId(userId);
-      socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'voice' });
-      setCallStatus(`Calling ${username}...`);
+      setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      setIsCallActive(true);
+      setCallStatus(`Calling...`);
+      socketRef.current!.emit('group_call_start', { roomKey, callType: 'voice' });
+      socketRef.current!.emit('join_group_call', { roomKey, callType: 'voice' });
       ringTimeoutRef.current = setTimeout(() => {
         if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
       }, 30000);
@@ -629,11 +715,14 @@ const handleVoiceCall = (userId: number, username: string) => {
       setMobileSection('calls');
       setMobileChatOpen(false);
     }
+    const roomKey = activeRoomRef.current;
     cleanupCall(); setActiveCallType('video'); activeCallTypeRef.current = 'video';
     ensureLocalStream('video').then(() => {
-      setActiveCallUserId(userId);
-      socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'video' });
-      setCallStatus(`Calling ${username}...`);
+      setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      setIsCallActive(true);
+      setCallStatus(`Calling...`);
+      socketRef.current!.emit('group_call_start', { roomKey, callType: 'video' });
+      socketRef.current!.emit('join_group_call', { roomKey, callType: 'video' });
       ringTimeoutRef.current = setTimeout(() => {
         if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
       }, 30000);
@@ -667,7 +756,17 @@ const handleVoiceCall = (userId: number, username: string) => {
 
   const acceptCall = async () => {
     if (!incomingCall || !socketRef.current) return;
-    try { await ensureLocalStream(incomingCall.callType); setActiveCallType(incomingCall.callType); activeCallTypeRef.current = incomingCall.callType; setActiveCallUserId(incomingCall.fromUserId); socketRef.current.emit('accept_call', { targetUserId: incomingCall.fromUserId }); setCallStatus('Accepted. Waiting for stream...'); setIncomingCall(null); } catch { setCallStatus('Could not access media'); }
+    try {
+      await ensureLocalStream(incomingCall.callType);
+      setActiveCallType(incomingCall.callType);
+      activeCallTypeRef.current = incomingCall.callType;
+      const roomKey = incomingCall.roomKey;
+      setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      setIsCallActive(true);
+      setCallStatus('Joining call...');
+      setIncomingCall(null);
+      socketRef.current.emit('join_group_call', { roomKey, callType: incomingCall.callType });
+    } catch { setCallStatus('Could not access media'); }
   };
 
   const rejectCall = () => {
@@ -677,29 +776,26 @@ const handleVoiceCall = (userId: number, username: string) => {
   };
 
   const endCall = () => {
-    const callEndedAt = callStartedAt;
-    const wasActive = activeCallUserId !== null;
-    const callType = activeCallType;
-    
-    if (socketRef.current && activeCallUserId) {
-      socketRef.current.emit('reject_call', { targetUserId: activeCallUserId, reason: 'Call ended' });
+    const roomKey = activeCallRoomKeyRef.current;
+    if (socketRef.current && roomKey) {
+      socketRef.current.emit('leave_group_call', { roomKey });
     }
-    
-    if (wasActive && callEndedAt) {
-      const duration = Math.floor((Date.now() - callEndedAt) / 1000);
-      const newCall: CallHistoryItem = {
-        id: `call_${Date.now()}`,
-        peerUserId: activeCallUserId!,
-        peerUsername: onlineUsers.find(u => u.userId === activeCallUserId)?.username || 'Unknown',
-        callType,
-        callStatus: duration > 0 ? 'completed' : 'missed',
-        duration,
-        createdAt: new Date().toISOString(),
-      };
-      setCallHistory(prev => [newCall, ...prev].slice(0, 50));
+    if (callStartedAt && callPeers.length > 0) {
+      const duration = Math.floor((Date.now() - callStartedAt) / 1000);
+      callPeers.forEach(peer => {
+        const newCall: CallHistoryItem = {
+          id: `call_${Date.now()}_${peer.userId}`,
+          peerUserId: peer.userId,
+          peerUsername: peer.username,
+          callType: activeCallType,
+          callStatus: duration > 0 ? 'completed' : 'missed',
+          duration,
+          createdAt: new Date().toISOString(),
+        };
+        setCallHistory(prev => [newCall, ...prev].slice(0, 50));
+      });
     }
-    
-    cleanupCall(); 
+    cleanupCall();
     setCallStartedAt(null);
     setCallStatus('Call ended');
   };
@@ -715,20 +811,34 @@ const handleVoiceCall = (userId: number, username: string) => {
   };
 
   const toggleScreenShare = async () => {
-    if (!peerRef.current || !localStreamRef.current) return;
+    if (peersRef.current.size === 0 || !localStreamRef.current) return;
     try {
       if (!isScreenSharing) {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
         const displayTrack = displayStream.getVideoTracks()[0];
-        const sender = peerRef.current.getSenders().find((s) => s.track?.kind === 'video');
-        await sender?.replaceTrack(displayTrack);
+        for (const peer of Array.from(peersRef.current.values())) {
+          const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
+          await sender?.replaceTrack(displayTrack);
+        }
         if (localVideoRef.current) localVideoRef.current.srcObject = displayStream;
         setLocalStream(displayStream);
-        displayTrack.onended = async () => { const fallback = cameraTrackRef.current; if (fallback) { await sender?.replaceTrack(fallback); if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current; setLocalStream(localStreamRef.current); } setIsScreenSharing(false); };
+        displayTrack.onended = async () => {
+          const fallback = cameraTrackRef.current;
+          for (const peer of Array.from(peersRef.current.values())) {
+            const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
+            if (fallback) await sender?.replaceTrack(fallback);
+          }
+          if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+          setLocalStream(localStreamRef.current);
+          setIsScreenSharing(false);
+        };
         setIsScreenSharing(true);
       } else {
-        const sender = peerRef.current.getSenders().find((s) => s.track?.kind === 'video');
-        const fallback = cameraTrackRef.current; if (fallback) await sender?.replaceTrack(fallback);
+        const fallback = cameraTrackRef.current;
+        for (const peer of Array.from(peersRef.current.values())) {
+          const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
+          if (fallback) await sender?.replaceTrack(fallback);
+        }
         if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
         if (localStreamRef.current) setLocalStream(localStreamRef.current);
         setIsScreenSharing(false);
@@ -878,15 +988,17 @@ const handleVoiceCall = (userId: number, username: string) => {
                     headerActions={
                       <>
                         {(() => {
-                          const otherParticipant = participants.find((p) => p.userId !== profile.userId);
-                          if (!otherParticipant) return null;
+                          const others = participants.filter(p => p.userId !== profile.userId);
+                          if (others.length === 0) return null;
+                          const isGroup = others.length > 1;
+                          const callTarget = others[0];
                           return (
                             <div className="hidden lg:flex items-center gap-1">
                               <button
                                 type="button"
-                                onClick={() => handleVoiceCall(otherParticipant.userId, otherParticipant.username)}
+                                onClick={() => handleVoiceCall(callTarget.userId, callTarget.username)}
                                 className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-100' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'}`}
-                                title={`Voice call ${otherParticipant.username}`}
+                                title={isGroup ? 'Start group voice call' : `Voice call ${callTarget.username}`}
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -894,9 +1006,9 @@ const handleVoiceCall = (userId: number, username: string) => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleVideoCall(otherParticipant.userId, otherParticipant.username)}
+                                onClick={() => handleVideoCall(callTarget.userId, callTarget.username)}
                                 className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-100' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'}`}
-                                title={`Video call ${otherParticipant.username}`}
+                                title={isGroup ? 'Start group video call' : `Video call ${callTarget.username}`}
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -1043,14 +1155,15 @@ const handleVoiceCall = (userId: number, username: string) => {
                   )}
                 </div>
 
-                {participants.find((p) => p.userId !== profile.userId) && (
+                {participants.some((p) => p.userId !== profile.userId) && (
                   <button
                     type="button"
                     onClick={() => {
                       const other = participants.find((p) => p.userId !== profile.userId);
-                      if (other) handleVoiceCall(other.userId, other.username);
+                      if (other) handleVideoCall(other.userId, other.username);
                     }}
-                    className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 p-3.5 text-white shadow-lg shadow-emerald-500/30 md:hidden active:scale-95"
+                    className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 p-3.5 text-white shadow-lg shadow-blue-500/30 md:hidden active:scale-95"
+                    title="Start video call"
                   >
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -1101,21 +1214,18 @@ const handleVoiceCall = (userId: number, username: string) => {
       </div>
 
       <CallUI
-        visible={Boolean(activeCallUserId || incomingCall)}
+        visible={isCallActive || Boolean(incomingCall)}
         callType={activeCallType}
         callStatus={callStatus}
         incomingCall={incomingCall}
         callDurationLabel={callDurationLabel}
         localVideoRef={localVideoRef}
-        remoteVideoRef={remoteVideoRef}
         localStream={localStream}
+        callPeers={callPeers}
         participantsOpen={participantsPanelOpen}
-        participants={onlineUsers}
-        activeSpeaker={remoteStreamRef.current ? 'remote' : 'local'}
         isMuted={isMuted}
         isCameraOff={isCameraOff}
         isScreenSharing={isScreenSharing}
-        activeCallUserId={activeCallUserId}
         onAcceptCall={acceptCall}
         onRejectCall={rejectCall}
         onToggleMute={toggleMute}

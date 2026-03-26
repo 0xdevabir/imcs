@@ -82,6 +82,13 @@ export type IncomingCall = {
   fromUsername: string;
   roomKey: string;
   callType: 'voice' | 'video';
+  isGroupCall?: boolean;
+};
+
+export type CallPeer = {
+  userId: number;
+  username: string;
+  stream: MediaStream | null;
 };
 
 export type UploadedFileResponse = {

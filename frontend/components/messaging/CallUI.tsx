@@ -1,6 +1,6 @@
 'use client';
 
-import { RefObject, useEffect, useRef } from 'react';
+import { MutableRefObject, useEffect, useRef } from 'react';
 import { CallPeer, IncomingCall } from './types';
 
 interface CallUIProps {
@@ -9,7 +9,7 @@ interface CallUIProps {
   callStatus: string;
   incomingCall: IncomingCall | null;
   callDurationLabel: string;
-  localVideoRef: RefObject<HTMLVideoElement>;
+  localVideoRef: MutableRefObject<HTMLVideoElement | null>;
   localStream: MediaStream | null;
   callPeers: CallPeer[];
   participantsOpen: boolean;
@@ -77,7 +77,7 @@ function VideoTile({ stream, label, isLocal, isMuted, isCameraOff, isScreenShari
 // ─── VideoGrid ─────────────────────────────────────────────────────────────────
 interface VideoGridProps {
   localStream: MediaStream | null;
-  localVideoRef: RefObject<HTMLVideoElement>;
+  localVideoRef: MutableRefObject<HTMLVideoElement | null>;
   callPeers: CallPeer[];
   callType: 'voice' | 'video';
   isMuted: boolean;
@@ -86,6 +86,13 @@ interface VideoGridProps {
 }
 
 function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, isCameraOff, isScreenSharing }: VideoGridProps) {
+  const bindLocalVideo = (node: HTMLVideoElement | null) => {
+    localVideoRef.current = node;
+    if (!node || !localStream) return;
+    if (node.srcObject !== localStream) node.srcObject = localStream;
+    node.play().catch(() => undefined);
+  };
+
   // Keep the local video ref in sync (used by page.tsx toggleScreenShare)
   useEffect(() => {
     if (!localVideoRef.current || !localStream) return;
@@ -128,7 +135,7 @@ function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, i
     return (
       <div className="relative h-full w-full bg-slate-900 flex items-center justify-center">
         {localStream && !isCameraOff ? (
-          <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover opacity-60" />
+          <video ref={bindLocalVideo} autoPlay playsInline muted className="w-full h-full object-cover opacity-60" />
         ) : (
           <div className="flex flex-col items-center gap-3">
             <div className="w-20 h-20 rounded-full bg-slate-800 flex items-center justify-center">
@@ -152,7 +159,7 @@ function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, i
         {/* Local — PiP bottom-right on mobile, left column on desktop */}
         <div className="absolute bottom-28 right-3 w-28 h-20 z-10 rounded-xl overflow-hidden shadow-2xl ring-2 ring-white/20 bg-slate-900 md:relative md:bottom-auto md:right-auto md:z-auto md:flex-1 md:min-h-0 md:w-auto md:h-auto md:rounded-2xl md:shadow-none md:ring-white/10">
           {localStream && !isCameraOff
-            ? <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+            ? <video ref={bindLocalVideo} autoPlay playsInline muted className="w-full h-full object-cover" />
             : <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
                 <div className="w-8 h-8 md:w-12 md:h-12 rounded-full bg-slate-700 flex items-center justify-center text-white text-xs md:text-sm font-bold">Y</div>
               </div>
@@ -191,7 +198,7 @@ function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, i
       {/* Local tile */}
       <div className="relative rounded-2xl overflow-hidden bg-slate-900 ring-2 ring-white/10 aspect-video">
         {localStream && !isCameraOff
-          ? <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+          ? <video ref={bindLocalVideo} autoPlay playsInline muted className="w-full h-full object-cover" />
           : <div className="absolute inset-0 flex items-center justify-center"><div className="w-10 h-10 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">Y</div></div>
         }
         <div className="absolute bottom-1.5 left-2 flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/50 text-white text-[10px] font-medium">

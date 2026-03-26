@@ -687,14 +687,61 @@ export default function ChatPage() {
     socketRef.current?.emit('update_status', { status });
   };
 
-const handleVoiceCall = (userId: number, username: string) => {
+  const ensureDirectRoomForTarget = async (targetUserId: number, targetUsername: string) => {
+    if (!profile) return null;
+    const roomKey = `dm_${Math.min(targetUserId, profile.userId)}_${Math.max(targetUserId, profile.userId)}`;
+    const exists = rooms.some((r) => r.key === roomKey);
+
+    if (!exists) {
+      const createResponse = await authFetch(`${API_URL}/groups`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: roomKey, name: targetUsername, participantUsernames: [targetUsername] }),
+      });
+      if (!createResponse.ok) return null;
+
+      const mineResponse = await authFetch(`${API_URL}/groups/mine`);
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms((prev) =>
+          mineData.map((g) => {
+            const existingRoom = prev.find((r) => r.key === g.key);
+            return {
+              key: g.key,
+              name: g.name || g.key,
+              unread: existingRoom?.unread ?? 0,
+              lastMessage: existingRoom?.lastMessage ?? 'No messages yet',
+              lastAt: existingRoom?.lastAt,
+            };
+          }),
+        );
+      }
+    }
+
+    return roomKey;
+  };
+
+  const handleVoiceCall = async (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setActiveSection('calls');
       setMobileSection('calls');
       setMobileChatOpen(false);
     }
-    const roomKey = activeRoomRef.current;
+    let roomKey = activeRoomRef.current;
+    if (activeSection === 'contacts') {
+      const dmRoom = await ensureDirectRoomForTarget(userId, username);
+      if (!dmRoom) {
+        setCallStatus('Could not prepare direct call room');
+        return;
+      }
+      roomKey = dmRoom;
+      setActiveRoomKey(dmRoom);
+      activeRoomRef.current = dmRoom;
+      socketRef.current.emit('join_room', { roomKey: dmRoom });
+    }
+
     cleanupCall(); setActiveCallType('voice'); activeCallTypeRef.current = 'voice';
     ensureLocalStream('voice').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
@@ -708,14 +755,26 @@ const handleVoiceCall = (userId: number, username: string) => {
     }).catch(() => setCallStatus('Could not access media devices'));
   };
 
-  const handleVideoCall = (userId: number, username: string) => {
+  const handleVideoCall = async (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       setActiveSection('calls');
       setMobileSection('calls');
       setMobileChatOpen(false);
     }
-    const roomKey = activeRoomRef.current;
+    let roomKey = activeRoomRef.current;
+    if (activeSection === 'contacts') {
+      const dmRoom = await ensureDirectRoomForTarget(userId, username);
+      if (!dmRoom) {
+        setCallStatus('Could not prepare direct call room');
+        return;
+      }
+      roomKey = dmRoom;
+      setActiveRoomKey(dmRoom);
+      activeRoomRef.current = dmRoom;
+      socketRef.current.emit('join_room', { roomKey: dmRoom });
+    }
+
     cleanupCall(); setActiveCallType('video'); activeCallTypeRef.current = 'video';
     ensureLocalStream('video').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;

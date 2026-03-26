@@ -82,6 +82,7 @@ export class UsersController {
     return updated;
   }
 
+
   @Delete(':username')
   @Roles('admin')
   async deleteUser(
@@ -98,5 +99,44 @@ export class UsersController {
     }
 
     return { success: true };
+  }
+
+  @Get('contacts')
+  async getContacts(@Request() req: { user: { userId: number } }) {
+    return this.usersService.getContacts(req.user.userId);
+  }
+
+  @Post('contacts')
+  async addContact(
+    @Request() req: { user: { userId: number } },
+    @Body() body: { contactUserId: number },
+  ) {
+    if (!body.contactUserId || !Number.isInteger(body.contactUserId)) {
+      throw new BadRequestException('contactUserId is required');
+    }
+    const result = await this.usersService.addContact(req.user.userId, body.contactUserId);
+    if (!result.success) throw new BadRequestException(result.message);
+    return { success: true };
+  }
+
+  @Delete('contacts/:contactId')
+  async removeContact(
+    @Request() req: { user: { userId: number } },
+    @Param('contactId') contactId: string,
+  ) {
+    const ok = await this.usersService.removeContact(req.user.userId, Number(contactId));
+    if (!ok) throw new NotFoundException('Contact not found');
+    return { success: true };
+  }
+
+  @Patch('me/username')
+  async changeUsername(
+    @Request() req: { user: { userId: number } },
+    @Body() body: { newUsername: string },
+  ) {
+    if (!body.newUsername) throw new BadRequestException('newUsername is required');
+    const result = await this.usersService.updateUsername(req.user.userId, body.newUsername);
+    if (!result.success) throw new ConflictException(result.message ?? 'Username update failed');
+    return result;
   }
 }

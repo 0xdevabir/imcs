@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { API_URL, buildApiHeaders, setAuthTokenCookie } from '@/lib/config';
 
 const MOCK_USERS = [
   { userId: 1, username: 'ABIR',    role: 'admin' },
@@ -38,23 +39,40 @@ function avatarGradient(name: string): string {
 export default function LoginPage() {
   const router = useRouter();
   const [loadingId, setLoadingId] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
   const filteredUsers = MOCK_USERS.filter((u) =>
     u.username.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleSelect = (user: (typeof MOCK_USERS)[number]) => {
+  const handleSelect = async (user: (typeof MOCK_USERS)[number]) => {
     if (loadingId !== null) return;
     setLoadingId(user.userId);
-    localStorage.setItem('mockUser', JSON.stringify({ userId: user.userId, username: user.username, role: user.role }));
-    // Small delay for UX feedback
-    setTimeout(() => router.push('/chat'), 600);
+    setError(null);
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: buildApiHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ username: user.username, password: 'Prototype1!' }),
+      });
+      if (!res.ok) {
+        setError(`Could not sign in as ${user.username}. Make sure the backend is running.`);
+        setLoadingId(null);
+        return;
+      }
+      const data = await res.json() as { access_token: string };
+      if (!data.access_token) { setError('No token received.'); setLoadingId(null); return; }
+      setAuthTokenCookie(data.access_token);
+      router.push('/chat');
+    } catch {
+      setError('Cannot reach the server. Make sure the backend is running.');
+      setLoadingId(null);
+    }
   };
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 py-10 bg-slate-50 dark:bg-slate-950">
-      {/* Header */}
       <div className="text-center mb-10">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white text-2xl font-black shadow-xl shadow-blue-500/30 mb-5">
           IM
@@ -67,7 +85,6 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Search */}
       <div className="w-full max-w-2xl mb-6">
         <div className="relative">
           <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -83,7 +100,15 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* User grid */}
+      {error && (
+        <div className="w-full max-w-2xl mb-4 flex items-center gap-2 rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/20 px-4 py-3">
+          <svg className="w-4 h-4 text-rose-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
+        </div>
+      )}
+
       <div className="w-full max-w-2xl grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
         {filteredUsers.map((user) => {
           const grad = avatarGradient(user.username);
@@ -104,9 +129,7 @@ export default function LoginPage() {
                   : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-600 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-200/60 dark:hover:shadow-slate-900/60 cursor-pointer'
               }`}
             >
-              {/* Avatar */}
               <div className="relative">
-                {/* Glow */}
                 <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${grad} blur-lg opacity-0 group-hover:opacity-30 transition-opacity duration-300 scale-110`} />
                 <div className={`relative w-14 h-14 rounded-2xl bg-gradient-to-br ${grad} flex items-center justify-center text-xl font-black text-white shadow-md`}>
                   {isLoading ? (
@@ -118,7 +141,6 @@ export default function LoginPage() {
                     user.username.charAt(0)
                   )}
                 </div>
-                {/* Admin crown */}
                 {user.role === 'admin' && (
                   <div className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-amber-400 flex items-center justify-center shadow-sm">
                     <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -128,7 +150,6 @@ export default function LoginPage() {
                 )}
               </div>
 
-              {/* Name */}
               <div className="text-center">
                 <p className="text-xs font-bold tracking-wide text-slate-800 dark:text-slate-100">
                   {user.username}
@@ -138,7 +159,6 @@ export default function LoginPage() {
                 )}
               </div>
 
-              {/* Hover enter indicator */}
               {!isLoading && !isDisabled && (
                 <div className="absolute inset-0 rounded-2xl border-2 border-blue-500/0 group-hover:border-blue-500/20 transition-all duration-200 pointer-events-none" />
               )}
@@ -147,15 +167,14 @@ export default function LoginPage() {
         })}
 
         {filteredUsers.length === 0 && (
-          <div className="col-span-full text-center py-12 text-sm text-slate-400 dark:text-slate-500">
-            No users match &ldquo;{search}&rdquo;
+          <div className="col-span-full text-center py-12 text-slate-400 dark:text-slate-600 text-sm">
+            No users found
           </div>
         )}
       </div>
 
-      {/* Footer note */}
-      <p className="mt-10 text-xs text-slate-400 dark:text-slate-600 text-center">
-        Prototype mode &mdash; no password required
+      <p className="mt-10 text-xs text-slate-400 dark:text-slate-600">
+        Prototype · Internal Messaging &amp; Calling Software
       </p>
     </main>
   );

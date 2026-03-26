@@ -316,7 +316,9 @@ export default function ChatPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
       localStreamRef.current = stream;
       cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    }
+    if (localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
     }
     return localStreamRef.current;
   };
@@ -340,6 +342,25 @@ export default function ChatPage() {
   };
 
   const [groups, setGroups] = useState<GroupSummary[]>([]);
+
+  useEffect(() => {
+    const callVisible = Boolean(activeCallUserId || incomingCall);
+    if (!callVisible) return;
+
+    if (localVideoRef.current && localStreamRef.current) {
+      if (localVideoRef.current.srcObject !== localStreamRef.current) {
+        localVideoRef.current.srcObject = localStreamRef.current;
+      }
+      void localVideoRef.current.play().catch(() => undefined);
+    }
+
+    if (remoteVideoRef.current && remoteStreamRef.current) {
+      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
+        remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      }
+      void remoteVideoRef.current.play().catch(() => undefined);
+    }
+  }, [activeCallUserId, incomingCall, callStatus, activeCallType]);
 
   useEffect(() => {
     if (!profile) return;

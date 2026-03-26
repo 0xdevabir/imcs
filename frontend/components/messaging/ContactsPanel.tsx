@@ -189,23 +189,20 @@ export function ContactsPanel(props: ContactsPanelProps) {
             {otherUsers.length === 0 ? (
               <EmptyMessage message="No users found" darkMode={props.darkMode} />
             ) : (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {otherUsers
+              <ContactsTable
+                darkMode={props.darkMode}
+                rows={otherUsers
                   .filter((u) => u.username.toLowerCase().includes(props.searchQuery.toLowerCase()))
-                  .map((user) => (
-                    <ContactCard
-                      key={user.userId}
-                      user={user}
-                      isOnline={isOnline(user.userId)}
-                      onlineStatus={getStatus(user.userId)}
-                      isAdded={addedIds.includes(user.userId)}
-                      onStartVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
-                      onStartVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
-                      onContactClick={() => props.onContactClick(user.userId, user.username)}
-                      darkMode={props.darkMode}
-                    />
-                  ))}
-              </div>
+                  .map((user) => ({
+                    user,
+                    isOnline: isOnline(user.userId),
+                    onlineStatus: getStatus(user.userId),
+                    isAdded: addedIds.includes(user.userId),
+                    onMessage: () => props.onContactClick(user.userId, user.username),
+                    onVoiceCall: () => props.onStartVoiceCall(user.userId, user.username),
+                    onVideoCall: () => props.onStartVideoCall(user.userId, user.username),
+                  }))}
+              />
             )}
           </div>
         ) : (
@@ -214,22 +211,19 @@ export function ContactsPanel(props: ContactsPanelProps) {
             {contacts.length > 0 && (
               <div>
                 <SectionHeader label="My Contacts" count={contacts.length} accent="blue" darkMode={props.darkMode} />
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {contacts.map((user) => (
-                    <ContactCard
-                      key={user.userId}
-                      user={user}
-                      isOnline={isOnline(user.userId)}
-                      onlineStatus={getStatus(user.userId)}
-                      isAdded={true}
-                      onStartVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
-                      onStartVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
-                      onContactClick={() => props.onContactClick(user.userId, user.username)}
-                      onRemove={() => handleRemove(user.userId, user.username)}
-                      darkMode={props.darkMode}
-                    />
-                  ))}
-                </div>
+                <ContactsTable
+                  darkMode={props.darkMode}
+                  rows={contacts.map((user) => ({
+                    user,
+                    isOnline: isOnline(user.userId),
+                    onlineStatus: getStatus(user.userId),
+                    isAdded: true,
+                    onMessage: () => props.onContactClick(user.userId, user.username),
+                    onVoiceCall: () => props.onStartVoiceCall(user.userId, user.username),
+                    onVideoCall: () => props.onStartVideoCall(user.userId, user.username),
+                    onRemove: () => handleRemove(user.userId, user.username),
+                  }))}
+                />
               </div>
             )}
 
@@ -237,21 +231,18 @@ export function ContactsPanel(props: ContactsPanelProps) {
             {onlineOthers.length > 0 && (
               <div>
                 <SectionHeader label="Online" count={onlineOthers.length} accent="emerald" darkMode={props.darkMode} />
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {onlineOthers.map((user) => (
-                    <ContactCard
-                      key={user.userId}
-                      user={{ userId: user.userId, username: user.username, role: 'user' }}
-                      isOnline={true}
-                      onlineStatus={user.status}
-                      isAdded={false}
-                      onStartVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
-                      onStartVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
-                      onContactClick={() => props.onContactClick(user.userId, user.username)}
-                      darkMode={props.darkMode}
-                    />
-                  ))}
-                </div>
+                <ContactsTable
+                  darkMode={props.darkMode}
+                  rows={onlineOthers.map((user) => ({
+                    user: { userId: user.userId, username: user.username, role: 'user' },
+                    isOnline: true,
+                    onlineStatus: user.status,
+                    isAdded: false,
+                    onMessage: () => props.onContactClick(user.userId, user.username),
+                    onVoiceCall: () => props.onStartVoiceCall(user.userId, user.username),
+                    onVideoCall: () => props.onStartVideoCall(user.userId, user.username),
+                  }))}
+                />
               </div>
             )}
 
@@ -259,20 +250,17 @@ export function ContactsPanel(props: ContactsPanelProps) {
             {offlineOthers.length > 0 && (
               <div>
                 <SectionHeader label="Offline" count={offlineOthers.length} darkMode={props.darkMode} />
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                  {offlineOthers.map((user) => (
-                    <ContactCard
-                      key={user.userId}
-                      user={user}
-                      isOnline={false}
-                      isAdded={addedIds.includes(user.userId)}
-                      onStartVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
-                      onStartVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
-                      onContactClick={() => props.onContactClick(user.userId, user.username)}
-                      darkMode={props.darkMode}
-                    />
-                  ))}
-                </div>
+                <ContactsTable
+                  darkMode={props.darkMode}
+                  rows={offlineOthers.map((user) => ({
+                    user,
+                    isOnline: false,
+                    isAdded: addedIds.includes(user.userId),
+                    onMessage: () => props.onContactClick(user.userId, user.username),
+                    onVoiceCall: () => props.onStartVoiceCall(user.userId, user.username),
+                    onVideoCall: () => props.onStartVideoCall(user.userId, user.username),
+                  }))}
+                />
               </div>
             )}
 
@@ -656,104 +644,228 @@ interface ContactCardProps {
   darkMode: boolean;
 }
 
-function ContactCard({ user, isOnline, onlineStatus, isAdded, onStartVoiceCall, onStartVideoCall, onContactClick, onRemove, darkMode }: ContactCardProps) {
-  const grad = avatarGradient(user.username);
+interface ContactTableRow {
+  user: SearchedUser;
+  isOnline: boolean;
+  onlineStatus?: UserStatus;
+  isAdded: boolean;
+  onMessage: () => void;
+  onVoiceCall: () => void;
+  onVideoCall: () => void;
+  onRemove?: () => void;
+}
 
+function ContactsTable({ rows, darkMode }: { rows: ContactTableRow[]; darkMode: boolean }) {
   return (
-    <div
-      onClick={() => onContactClick(user.userId, user.username)}
-      className={`group relative flex flex-col items-center gap-3 rounded-2xl p-4 cursor-pointer transition-all duration-200 ${
-        darkMode
-          ? 'bg-slate-900/60 hover:bg-slate-800/80 ring-1 ring-slate-800 hover:ring-slate-700'
-          : 'bg-white hover:shadow-md ring-1 ring-slate-100 hover:ring-slate-200'
-      }`}
-    >
-      {/* "In contacts" badge */}
-      {isAdded && (
-        <div className={`absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center ${
-          darkMode ? 'bg-emerald-500/20 text-emerald-400' : 'bg-emerald-50 text-emerald-500'
-        }`} title="In your contacts">
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-          </svg>
-        </div>
-      )}
-
-      {/* Avatar */}
-      <div className="relative">
-        <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${grad} flex items-center justify-center text-xl font-bold text-white shadow-sm`}>
-          {user.username.charAt(0).toUpperCase()}
-        </div>
-        <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 ${darkMode ? 'border-slate-900' : 'border-white'} ${isOnline ? statusDot(onlineStatus) : 'bg-slate-300'}`} />
+    <div className={`overflow-hidden rounded-2xl ring-1 ${darkMode ? 'ring-slate-800 bg-slate-900/40' : 'ring-slate-200 bg-white'}`}>
+      <div className="sm:hidden divide-y divide-slate-800/70">
+        {rows.map((row) => {
+          const grad = avatarGradient(row.user.username);
+          return (
+            <div key={row.user.userId} className={`px-3 py-3 ${darkMode ? 'bg-slate-900/40' : 'bg-white'}`}>
+              <div className="flex items-start justify-between gap-3">
+                <button type="button" onClick={row.onMessage} className="flex items-center gap-3 min-w-0 text-left">
+                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-white font-bold text-xs`}>
+                    {row.user.username.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold truncate">{row.user.username}</p>
+                    <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>@{row.user.username.toLowerCase()}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${row.user.role === 'admin'
+                        ? (darkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-700')
+                        : (darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
+                      }`}>
+                        {row.user.role}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 text-[11px] font-medium ${statusTextColor(row.onlineStatus, row.isOnline)}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${row.isOnline ? statusDot(row.onlineStatus) : 'bg-slate-400'}`} />
+                        {statusLabel(row.onlineStatus, row.isOnline)}
+                      </span>
+                      {row.isAdded && (
+                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${darkMode ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-700'}`}>
+                          Saved
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  onClick={row.onMessage}
+                  className={`inline-flex items-center justify-center rounded-lg py-2.5 transition-colors ${
+                    darkMode ? 'bg-slate-800 active:bg-slate-700 text-slate-300' : 'bg-slate-100 active:bg-slate-200 text-slate-600'
+                  }`}
+                  title="Message"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={row.onVoiceCall}
+                  className={`inline-flex items-center justify-center rounded-lg py-2.5 transition-colors ${
+                    darkMode ? 'bg-slate-800 active:bg-emerald-500/20 text-slate-300 active:text-emerald-400' : 'bg-slate-100 active:bg-emerald-50 text-slate-600 active:text-emerald-600'
+                  }`}
+                  title="Voice call"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={row.onVideoCall}
+                  className={`inline-flex items-center justify-center rounded-lg py-2.5 transition-colors ${
+                    darkMode ? 'bg-slate-800 active:bg-blue-500/20 text-slate-300 active:text-blue-400' : 'bg-slate-100 active:bg-blue-50 text-slate-600 active:text-blue-600'
+                  }`}
+                  title="Video call"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                </button>
+                {row.onRemove ? (
+                  <button
+                    type="button"
+                    onClick={row.onRemove}
+                    className={`inline-flex items-center justify-center rounded-lg py-2.5 transition-colors ${
+                      darkMode ? 'bg-slate-800 active:bg-rose-500/20 text-slate-300 active:text-rose-400' : 'bg-slate-100 active:bg-rose-50 text-slate-600 active:text-rose-600'
+                    }`}
+                    title="Remove contact"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                    </svg>
+                  </button>
+                ) : (
+                  <div />
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Info */}
-      <div className="text-center min-w-0 w-full">
-        <p className="text-sm font-semibold truncate">{user.username}</p>
-        <p className={`text-xs mt-0.5 ${statusTextColor(onlineStatus, isOnline)}`}>
-          {statusLabel(onlineStatus, isOnline)}
-        </p>
-        {user.role === 'admin' && (
-          <span className={`inline-block mt-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-            darkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
-          }`}>
-            Admin
-          </span>
-        )}
-      </div>
-
-      {/* Hover actions */}
-      <div className="flex items-center gap-1.5 w-full opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all duration-200">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onContactClick(user.userId, user.username); }}
-          className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
-          }`}
-          title="Message"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onStartVoiceCall(); }}
-          className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            darkMode ? 'bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400' : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600'
-          }`}
-          title="Voice call"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onStartVideoCall(); }}
-          className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-            darkMode ? 'bg-slate-800 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400' : 'bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600'
-          }`}
-          title="Video call"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-          </svg>
-        </button>
-        {onRemove && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              darkMode ? 'bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400' : 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-500'
-            }`}
-            title="Remove contact"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
-            </svg>
-          </button>
-        )}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full min-w-[680px] text-sm">
+          <thead>
+            <tr className={darkMode ? 'bg-slate-900/80 text-slate-400' : 'bg-slate-50 text-slate-500'}>
+              <th className="text-left font-semibold px-4 py-3">User</th>
+              <th className="text-left font-semibold px-4 py-3">Role</th>
+              <th className="text-left font-semibold px-4 py-3">Status</th>
+              <th className="text-left font-semibold px-4 py-3">Saved</th>
+              <th className="text-right font-semibold px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const grad = avatarGradient(row.user.username);
+              return (
+                <tr key={row.user.userId} className={darkMode ? 'border-t border-slate-800/80 hover:bg-slate-800/40' : 'border-t border-slate-100 hover:bg-slate-50/70'}>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={row.onMessage}
+                      className="flex items-center gap-3 min-w-0 hover:opacity-90"
+                    >
+                      <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-white font-bold text-xs`}>
+                        {row.user.username.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 text-left">
+                        <p className="font-semibold truncate">{row.user.username}</p>
+                        <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>@{row.user.username.toLowerCase()}</p>
+                      </div>
+                    </button>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${row.user.role === 'admin'
+                      ? (darkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-700')
+                      : (darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600')
+                    }`}>
+                      {row.user.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex items-center gap-2 text-xs font-medium ${statusTextColor(row.onlineStatus, row.isOnline)}`}>
+                      <span className={`w-2 h-2 rounded-full ${row.isOnline ? statusDot(row.onlineStatus) : 'bg-slate-400'}`} />
+                      {statusLabel(row.onlineStatus, row.isOnline)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {row.isAdded ? (
+                      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${darkMode ? 'bg-emerald-500/15 text-emerald-400' : 'bg-emerald-50 text-emerald-700'}`}>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Saved
+                      </span>
+                    ) : (
+                      <span className={`text-xs ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>No</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={row.onMessage}
+                        className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors ${
+                          darkMode ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                        }`}
+                        title="Message"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={row.onVoiceCall}
+                        className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors ${
+                          darkMode ? 'bg-slate-800 hover:bg-emerald-500/20 text-slate-300 hover:text-emerald-400' : 'bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-600'
+                        }`}
+                        title="Voice call"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={row.onVideoCall}
+                        className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors ${
+                          darkMode ? 'bg-slate-800 hover:bg-blue-500/20 text-slate-300 hover:text-blue-400' : 'bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600'
+                        }`}
+                        title="Video call"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                      {row.onRemove && (
+                        <button
+                          type="button"
+                          onClick={row.onRemove}
+                          className={`inline-flex items-center justify-center rounded-lg p-2 transition-colors ${
+                            darkMode ? 'bg-slate-800 hover:bg-rose-500/20 text-slate-300 hover:text-rose-400' : 'bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600'
+                          }`}
+                          title="Remove contact"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );

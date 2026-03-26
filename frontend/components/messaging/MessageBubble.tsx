@@ -94,7 +94,7 @@ export function MessageBubble(props: MessageBubbleProps) {
         {/* Bubble */}
         <div className="relative">
           {/* Hover action bar */}
-          <div className={`absolute ${isMine ? 'right-0' : 'left-0'} -top-9 opacity-0 group-hover:opacity-100 transition-all duration-150 z-10 pointer-events-none group-hover:pointer-events-auto`}>
+          <div className={`absolute ${isMine ? 'right-0' : 'left-0'} -top-9 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-150 z-10 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto`}>
             <div className={`flex items-center gap-0.5 rounded-xl px-1.5 py-1 shadow-lg ring-1 ${
               props.darkMode
                 ? 'bg-slate-800 ring-slate-700'

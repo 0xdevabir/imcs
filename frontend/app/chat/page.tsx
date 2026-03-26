@@ -41,12 +41,29 @@ const QUICK_USERS_FALLBACK: SearchedUser[] = [
   { userId: 9, username: 'SHAFIN', role: 'user' },
   { userId: 10, username: 'ZOHIR', role: 'user' },
 ];
-const RTC_CONFIG: RTCConfiguration = {
-  iceServers: [
+function buildRtcConfig(): RTCConfiguration {
+  const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.cloudflare.com:3478' },
+  ];
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCredential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+  if (turnUrl && turnUsername && turnCredential) {
+    iceServers.push({ urls: turnUrl, username: turnUsername, credential: turnCredential });
+  }
+  return {
+    iceServers,
+    iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
+  };
+}
+const RTC_CONFIG = buildRtcConfig();
 
 function encodeAttachmentMessage(file: UploadedFileResponse): string {
   return `${FILE_MESSAGE_PREFIX}${JSON.stringify({ kind: 'file', ...file })}`;
@@ -126,6 +143,7 @@ export default function ChatPage() {
 
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef('general');
+  const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
@@ -298,7 +316,8 @@ export default function ChatPage() {
   }, [profile, activeRoomKey]);
 
   const cleanupCall = () => {
-    if (peerRef.current) { peerRef.current.ontrack = null; peerRef.current.onicecandidate = null; peerRef.current.close(); peerRef.current = null; }
+    if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
+    if (peerRef.current) { peerRef.current.ontrack = null; peerRef.current.onicecandidate = null; peerRef.current.onconnectionstatechange = null; peerRef.current.oniceconnectionstatechange = null; peerRef.current.close(); peerRef.current = null; }
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
     if (remoteStreamRef.current) { remoteStreamRef.current.getTracks().forEach(t => t.stop()); remoteStreamRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -329,12 +348,32 @@ export default function ChatPage() {
     remoteStreamRef.current = new MediaStream();
     peer.ontrack = (event) => {
       if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream();
-      event.streams[0].getTracks().forEach(t => remoteStreamRef.current!.addTrack(t));
+      const streams = event.streams;
+      const src = streams && streams.length > 0 ? streams[0] : null;
+      if (src) {
+        src.getTracks().forEach(t => { if (!remoteStreamRef.current!.getTracks().includes(t)) remoteStreamRef.current!.addTrack(t); });
+      } else {
+        if (!remoteStreamRef.current!.getTracks().includes(event.track)) remoteStreamRef.current!.addTrack(event.track);
+      }
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
     };
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
       socketRef.current?.emit('ice_candidate', { targetUserId, candidate: event.candidate.toJSON() });
+    };
+    peer.onconnectionstatechange = () => {
+      const state = peer.connectionState;
+      if (state === 'connected') { setCallStatus('In call'); }
+      if (state === 'failed') {
+        setCallStatus('Reconnecting...');
+        try { peer.restartIce(); } catch { cleanupCall(); setCallStatus('Call failed'); }
+      }
+      if (state === 'disconnected') { setCallStatus('Connection interrupted...'); }
+    };
+    peer.oniceconnectionstatechange = () => {
+      if (peer.iceConnectionState === 'failed') {
+        try { peer.restartIce(); } catch { /* handled by onconnectionstatechange */ }
+      }
     };
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => peer.addTrack(t, localStreamRef.current!));
     peerRef.current = peer;
@@ -426,9 +465,17 @@ export default function ChatPage() {
       }
     });
     socket.on('accept_call', async (payload: { fromUserId: number }) => {
+      if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       setActiveCallUserId(payload.fromUserId);
       setCallStatus('Call accepted. Negotiating...');
-      try { await ensureLocalStream(activeCallTypeRef.current); const peer = ensurePeer(payload.fromUserId); const offer = await peer.createOffer(); await peer.setLocalDescription(offer); socket.emit('offer', { targetUserId: payload.fromUserId, sdp: offer }); } catch { setCallStatus('Could not start call media'); }
+      try {
+        await ensureLocalStream(activeCallTypeRef.current);
+        const peer = ensurePeer(payload.fromUserId);
+        const isVideo = activeCallTypeRef.current === 'video';
+        const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
+        await peer.setLocalDescription(offer);
+        socket.emit('offer', { targetUserId: payload.fromUserId, sdp: offer });
+      } catch { setCallStatus('Could not start call media'); }
     });
     socket.on('reject_call', (payload: { reason?: string }) => { cleanupCall(); setCallStatus(payload.reason ?? 'Call ended'); });
     socket.on('offer', async (payload: { fromUserId: number; sdp: RTCSessionDescriptionInit }) => {
@@ -438,7 +485,15 @@ export default function ChatPage() {
     });
     socket.on('answer', async (payload: { sdp: RTCSessionDescriptionInit }) => {
       if (!peerRef.current) return;
-      try { await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp)); setCallStatus('In call'); setCallStartedAt(Date.now()); } catch { setCallStatus('Failed to finalize call'); }
+      try {
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+        for (const c of pendingCandidatesRef.current) {
+          try { await peerRef.current?.addIceCandidate(new RTCIceCandidate(c)); } catch { /* ignore stale candidates */ }
+        }
+        pendingCandidatesRef.current = [];
+        setCallStatus('In call');
+        setCallStartedAt(Date.now());
+      } catch { setCallStatus('Failed to finalize call'); }
     });
     socket.on('ice_candidate', async (payload: { candidate: RTCIceCandidateInit }) => {
       if (peerRef.current?.remoteDescription) { try { await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch { setStatus('Failed to process ICE candidate'); } } else { pendingCandidatesRef.current.push(payload.candidate); }
@@ -561,6 +616,9 @@ const handleVoiceCall = (userId: number, username: string) => {
       setActiveCallUserId(userId);
       socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'voice' });
       setCallStatus(`Calling ${username}...`);
+      ringTimeoutRef.current = setTimeout(() => {
+        if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
+      }, 30000);
     }).catch(() => setCallStatus('Could not access media devices'));
   };
 
@@ -576,6 +634,9 @@ const handleVoiceCall = (userId: number, username: string) => {
       setActiveCallUserId(userId);
       socketRef.current!.emit('call_user', { targetUsername: username, targetUserId: userId, roomKey: activeRoomKey, callType: 'video' });
       setCallStatus(`Calling ${username}...`);
+      ringTimeoutRef.current = setTimeout(() => {
+        if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
+      }, 30000);
     }).catch(() => setCallStatus('Could not access media devices'));
   };
 

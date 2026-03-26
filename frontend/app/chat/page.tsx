@@ -122,6 +122,7 @@ export default function ChatPage() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
   const [callHistory, setCallHistory] = useState<CallHistoryItem[]>([]);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef('general');
@@ -303,6 +304,7 @@ export default function ChatPage() {
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     pendingCandidatesRef.current = [];
+    setLocalStream(null);
     setActiveCallUserId(null);
     setIncomingCall(null);
     setCallStatus('idle');
@@ -316,11 +318,9 @@ export default function ChatPage() {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
       localStreamRef.current = stream;
       cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
+      setLocalStream(stream);
     }
-    if (localVideoRef.current && localStreamRef.current) {
-      localVideoRef.current.srcObject = localStreamRef.current;
-    }
-    return localStreamRef.current;
+    return localStreamRef.current!;
   };
 
   const ensurePeer = (targetUserId: number) => {
@@ -343,24 +343,6 @@ export default function ChatPage() {
 
   const [groups, setGroups] = useState<GroupSummary[]>([]);
 
-  useEffect(() => {
-    const callVisible = Boolean(activeCallUserId || incomingCall);
-    if (!callVisible) return;
-
-    if (localVideoRef.current && localStreamRef.current) {
-      if (localVideoRef.current.srcObject !== localStreamRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current;
-      }
-      void localVideoRef.current.play().catch(() => undefined);
-    }
-
-    if (remoteVideoRef.current && remoteStreamRef.current) {
-      if (remoteVideoRef.current.srcObject !== remoteStreamRef.current) {
-        remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      }
-      void remoteVideoRef.current.play().catch(() => undefined);
-    }
-  }, [activeCallUserId, incomingCall, callStatus, activeCallType]);
 
   useEffect(() => {
     if (!profile) return;
@@ -680,12 +662,14 @@ const handleVoiceCall = (userId: number, username: string) => {
         const sender = peerRef.current.getSenders().find((s) => s.track?.kind === 'video');
         await sender?.replaceTrack(displayTrack);
         if (localVideoRef.current) localVideoRef.current.srcObject = displayStream;
-        displayTrack.onended = async () => { const fallback = cameraTrackRef.current; if (fallback) { await sender?.replaceTrack(fallback); if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current; } setIsScreenSharing(false); };
+        setLocalStream(displayStream);
+        displayTrack.onended = async () => { const fallback = cameraTrackRef.current; if (fallback) { await sender?.replaceTrack(fallback); if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current; setLocalStream(localStreamRef.current); } setIsScreenSharing(false); };
         setIsScreenSharing(true);
       } else {
         const sender = peerRef.current.getSenders().find((s) => s.track?.kind === 'video');
         const fallback = cameraTrackRef.current; if (fallback) await sender?.replaceTrack(fallback);
         if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        if (localStreamRef.current) setLocalStream(localStreamRef.current);
         setIsScreenSharing(false);
       }
     } catch { setStatus('Screen share unavailable'); }
@@ -729,7 +713,7 @@ const handleVoiceCall = (userId: number, username: string) => {
 
   return (
     <main className={`${darkMode ? 'dark' : ''}`}>
-      <div className={`h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
+      <div className={`h-[calc(100vh-4rem)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
         <div className="mx-auto flex h-full max-w-[1800px]">
           <Sidebar
             collapsed={sidebarCollapsed}
@@ -800,12 +784,28 @@ const handleVoiceCall = (userId: number, username: string) => {
               />
             ) : (
               <>
+                {/* Mobile chat list – shown on small screens when no conversation is open */}
+                <div className={`${!mobileChatOpen ? 'flex' : 'hidden'} h-full flex-col md:hidden`}>
+                  <ChatList
+                    rooms={rooms}
+                    activeRoomKey={activeRoomKey}
+                    searchQuery={searchQuery}
+                    onSearchQueryChange={setSearchQuery}
+                    onOpenRoom={openRoom}
+                    pinnedRoomKeys={pinnedRoomKeys}
+                    onTogglePin={togglePin}
+                    onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
+                    darkMode={darkMode}
+                  />
+                </div>
+
                 <div className={`${mobileChatOpen ? 'flex' : 'hidden'} h-full flex-1 flex-col md:flex`}>
                   <ChatWindow
                     profile={profile}
                     roomTitle={activeRoomName}
                     roomStatus={status}
                     darkMode={darkMode}
+                    onBack={() => setMobileChatOpen(false)}
                     messages={messages}
                     participants={participants}
                     typingIndicator={typingIndicator}
@@ -1047,6 +1047,7 @@ const handleVoiceCall = (userId: number, username: string) => {
         callDurationLabel={callDurationLabel}
         localVideoRef={localVideoRef}
         remoteVideoRef={remoteVideoRef}
+        localStream={localStream}
         participantsOpen={participantsPanelOpen}
         participants={onlineUsers}
         activeSpeaker={remoteStreamRef.current ? 'remote' : 'local'}

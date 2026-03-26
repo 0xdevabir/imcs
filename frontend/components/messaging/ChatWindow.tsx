@@ -17,6 +17,7 @@ interface ChatWindowProps {
   onDelete: (message: ChatMessage) => void;
   headerActions: React.ReactNode;
   composer: React.ReactNode;
+  onBack?: () => void;
 }
 
 const AVATAR_GRADIENTS = [
@@ -58,14 +59,29 @@ export function ChatWindow(props: ChatWindowProps) {
 
       {/* Header */}
       <header
-        className={`flex-shrink-0 flex items-center justify-between px-5 py-3.5 border-b transition-all duration-300 ${
+        className={`flex-shrink-0 flex items-center justify-between px-3 py-3 sm:px-5 sm:py-3.5 border-b transition-all duration-300 ${
           props.darkMode
             ? 'border-slate-800/50 bg-slate-950/95'
             : 'border-slate-100 bg-white/95'
         }`}
         style={{ backdropFilter: 'blur(20px)' }}
       >
-        <div className="flex items-center gap-3.5 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
+          {/* Back button – mobile only */}
+          {props.onBack && (
+            <button
+              type="button"
+              onClick={props.onBack}
+              className={`md:hidden flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+                props.darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+              }`}
+              title="Back to chats"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
           {/* Avatar */}
           <div className={`flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}>
             {props.roomTitle.charAt(0).toUpperCase()}
@@ -75,7 +91,7 @@ export function ChatWindow(props: ChatWindowProps) {
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h2 className="text-sm font-bold truncate">{props.roomTitle}</h2>
-              <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 ${
+              <span className={`hidden sm:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 ${
                 props.darkMode
                   ? 'bg-emerald-500/10 text-emerald-400'
                   : 'bg-emerald-50 text-emerald-600'
@@ -102,7 +118,7 @@ export function ChatWindow(props: ChatWindowProps) {
 
       {/* Messages area */}
       <div
-        className={`flex-1 overflow-y-auto px-4 py-4 md:px-6 ${
+        className={`flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 md:px-6 ${
           props.darkMode
             ? 'bg-slate-950'
             : 'bg-slate-50/60'
@@ -181,7 +197,7 @@ export function ChatWindow(props: ChatWindowProps) {
 
       {/* Composer */}
       <footer
-        className={`flex-shrink-0 border-t px-4 py-3.5 md:px-5 transition-all duration-300 ${
+        className={`flex-shrink-0 border-t px-3 py-3 sm:px-4 sm:py-3.5 md:px-5 transition-all duration-300 ${
           props.darkMode
             ? 'border-slate-800/50 bg-slate-950/95'
             : 'border-slate-100 bg-white/95'

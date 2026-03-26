@@ -3,6 +3,7 @@ import { compare } from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -11,7 +12,7 @@ export class AuthService {
   ) {}
 
   async validateUser(username: string, password: string) {
-    const user = this.usersService.findOne(username);
+    const user = await this.usersService.findOne(username);
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
     }
@@ -32,5 +33,16 @@ export class AuthService {
     return {
       access_token: this.jwtService.sign(payload),
     };
+  }
+
+  async changePassword(username: string, currentPassword: string, newPassword: string) {
+    const user = await this.usersService.findOne(username);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const valid = await compare(currentPassword, user.password);
+    if (!valid) throw new UnauthorizedException('Current password is incorrect');
+
+    await this.usersService.updatePassword(username, newPassword);
+    return { success: true };
   }
 }

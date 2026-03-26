@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, Request, Res, UseGuards } from '@nestjs/co
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 function resolveSameSite() {
@@ -36,5 +37,14 @@ export class AuthController {
   @Get('profile')
   getProfile(@Request() request: { user: { userId: number; username: string; role: 'admin' | 'user' } }) {
     return request.user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  changePassword(
+    @Request() request: { user: { username: string } },
+    @Body() body: ChangePasswordDto,
+  ) {
+    return this.authService.changePassword(request.user.username, body.currentPassword, body.newPassword);
   }
 }

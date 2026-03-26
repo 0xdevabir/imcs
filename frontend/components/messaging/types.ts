@@ -38,19 +38,22 @@ export type ChatMessage = {
     username: string;
   };
   content: string;
+  isEdited?: boolean;
+  isDeleted?: boolean;
   createdAt: string;
   deliveredAt?: string | null;
   readAt?: string | null;
   receipts: Receipt[];
   reactions?: MessageReaction[];
   replyTo?: ReplyPreview | null;
-  editedLocal?: boolean;
-  deletedLocal?: boolean;
 };
+
+export type UserStatus = 'available' | 'dnd' | 'invisible';
 
 export type OnlineUser = {
   userId: number;
   username: string;
+  status: UserStatus;
 };
 
 export type GroupParticipant = {
@@ -102,4 +105,14 @@ export type AttachmentPayload = {
   fileName: string;
   originalName: string;
   size: number;
+};
+
+export type CallHistoryItem = {
+  id: string;
+  peerUserId: number;
+  peerUsername: string;
+  callType: 'voice' | 'video';
+  callStatus: 'missed' | 'completed' | 'incoming' | 'outgoing';
+  duration: number;
+  createdAt: string;
 };

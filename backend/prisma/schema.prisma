@@ -132,3 +132,13 @@ model CommunicationRule {
   @@index([fromUsername])
   @@index([toUsername])
 }
+
+model UserContact {
+  id        String   @id @default(cuid())
+  userId    Int
+  contactId Int
+  createdAt DateTime @default(now())
+
+  @@unique([userId, contactId])
+  @@index([userId])
+}

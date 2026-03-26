@@ -29,6 +29,18 @@ import {
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 const CLIENT_MAX_FILE_BYTES = 20 * 1024 * 1024;
+const QUICK_USERS_FALLBACK: SearchedUser[] = [
+  { userId: 1, username: 'ABIR', role: 'admin' },
+  { userId: 2, username: 'RAYAT', role: 'user' },
+  { userId: 3, username: 'ZION', role: 'user' },
+  { userId: 4, username: 'MEHERAZ', role: 'user' },
+  { userId: 5, username: 'NISHAK', role: 'user' },
+  { userId: 6, username: 'SAYED', role: 'user' },
+  { userId: 7, username: 'RAKIB', role: 'user' },
+  { userId: 8, username: 'ZAFOR', role: 'user' },
+  { userId: 9, username: 'SHAFIN', role: 'user' },
+  { userId: 10, username: 'ZOHIR', role: 'user' },
+];
 const RTC_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -204,10 +216,15 @@ export default function ChatPage() {
         const response = await authFetch(`${API_URL}/users/all`);
         if (response.ok) {
           const users = (await response.json()) as SearchedUser[];
-          setAllUsers(users);
+          if (users.length > 0) {
+            setAllUsers(users);
+            return;
+          }
         }
+        setAllUsers(QUICK_USERS_FALLBACK);
       } catch (err) {
         console.error('Failed to load users', err);
+        setAllUsers(QUICK_USERS_FALLBACK);
       }
     };
     loadUsers();
@@ -705,6 +722,7 @@ const handleVoiceCall = (userId: number, username: string) => {
             {activeSection === 'contacts' ? (
               <div className="h-full flex">
                 <ContactsPanel
+                  apiUrl={API_URL}
                   onlineUsers={onlineUsers}
                   allUsers={allUsers}
                   searchQuery={contactSearchQuery}
@@ -724,6 +742,7 @@ const handleVoiceCall = (userId: number, username: string) => {
                 profile={profile ?? { username: '', userId: 0, role: 'user' }}
                 userStatus={userStatus}
                 onStatusChange={updateStatus}
+                onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
                 apiUrl={API_URL}
               />
             ) : activeSection === 'settings' ? (

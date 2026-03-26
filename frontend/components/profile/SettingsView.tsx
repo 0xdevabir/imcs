@@ -11,6 +11,7 @@ interface SettingsViewProps {
   profile: { username: string; userId: number; role: 'admin' | 'user' };
   userStatus: UserStatus;
   onStatusChange: (status: UserStatus) => void;
+  onUsernameChange: (newUsername: string) => void;
   apiUrl: string;
 }
 
@@ -55,7 +56,7 @@ function SettingCard({ title, darkMode, children }: { title: string; darkMode: b
   );
 }
 
-export function SettingsView({ darkMode, onToggleDarkMode, onBack, profile, userStatus, onStatusChange, apiUrl }: SettingsViewProps) {
+export function SettingsView({ darkMode, onToggleDarkMode, onBack, profile, userStatus, onStatusChange, onUsernameChange, apiUrl }: SettingsViewProps) {
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [messagePreview, setMessagePreview] = useState(true);
@@ -65,6 +66,37 @@ export function SettingsView({ darkMode, onToggleDarkMode, onBack, profile, user
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwStatus, setPwStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [pwLoading, setPwLoading] = useState(false);
+
+  const [newUsername, setNewUsername] = useState('');
+  const [unStatus, setUnStatus] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [unLoading, setUnLoading] = useState(false);
+
+  const handleChangeUsername = async () => {
+    const trimmed = newUsername.trim();
+    if (!trimmed) { setUnStatus({ type: 'error', msg: 'Enter a new username.' }); return; }
+    if (trimmed.length < 2 || trimmed.length > 32) { setUnStatus({ type: 'error', msg: 'Username must be 2–32 characters.' }); return; }
+    setUnLoading(true); setUnStatus(null);
+    try {
+      const res = await authFetch(`${apiUrl}/users/me/username`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newUsername: trimmed }),
+      });
+      if (res.ok) {
+        const data = await res.json() as { username: string };
+        setUnStatus({ type: 'success', msg: 'Username updated successfully.' });
+        setNewUsername('');
+        onUsernameChange(data.username);
+      } else {
+        const data = await res.json().catch(() => ({})) as { message?: string };
+        setUnStatus({ type: 'error', msg: data.message ?? 'Failed to update username.' });
+      }
+    } catch {
+      setUnStatus({ type: 'error', msg: 'Network error. Please try again.' });
+    } finally {
+      setUnLoading(false);
+    }
+  };
 
   const grad = avatarGradient(profile.username);
   const currentStatusConfig = STATUS_OPTIONS.find((s) => s.value === userStatus);
@@ -289,6 +321,44 @@ export function SettingsView({ darkMode, onToggleDarkMode, onBack, profile, user
                 className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 transition-colors"
               >
                 {pwLoading ? 'Updating...' : 'Update Password'}
+              </button>
+            </div>
+          </SettingCard>
+
+          {/* Change Username */}
+          <SettingCard title="Change Username" darkMode={darkMode}>
+            <div className="px-5 py-4 space-y-3">
+              <div className={`text-xs px-1 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                Current: <span className="font-semibold">{profile.username}</span>
+              </div>
+              <input
+                type="text"
+                placeholder="New username"
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                className={inputClass}
+              />
+              {unStatus && (
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium ${
+                  unStatus.type === 'success'
+                    ? darkMode ? 'bg-emerald-500/10 text-emerald-400' : 'bg-emerald-50 text-emerald-600'
+                    : darkMode ? 'bg-rose-500/10 text-rose-400' : 'bg-rose-50 text-rose-600'
+                }`}>
+                  {unStatus.type === 'success' ? (
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  ) : (
+                    <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  )}
+                  {unStatus.msg}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleChangeUsername}
+                disabled={unLoading}
+                className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold py-2.5 transition-colors"
+              >
+                {unLoading ? 'Updating...' : 'Update Username'}
               </button>
             </div>
           </SettingCard>

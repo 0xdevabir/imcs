@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { authFetch } from '@/lib/config';
-import { OnlineUser, SearchedUser, UserStatus } from './types';
+import { OnlineUser, SearchedUser, UserStatus } from '@/features/chat/types';
 
 const AVATAR_GRADIENTS = [
   'from-blue-500 to-indigo-600',

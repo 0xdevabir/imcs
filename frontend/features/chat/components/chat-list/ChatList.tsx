@@ -1,4 +1,4 @@
-import { RoomItem } from './types';
+import { RoomItem } from '@/features/chat/types';
 
 interface ChatListProps {
   rooms: RoomItem[];
@@ -9,6 +9,7 @@ interface ChatListProps {
   pinnedRoomKeys: string[];
   onTogglePin: (roomKey: string) => void;
   onOpenCreateGroup: () => void;
+  onOpenNavMenu?: () => void;
   darkMode: boolean;
 }
 
@@ -53,9 +54,25 @@ export function ChatList(props: ChatListProps) {
       {/* Header */}
       <div className={`px-4 pt-4 pb-3 border-b ${props.darkMode ? 'border-white/5' : 'border-slate-100'}`}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
-            Chats
-          </h2>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={props.onOpenNavMenu}
+              title="Open navigation"
+              className={`w-8 h-8 flex items-center justify-center rounded-xl transition-all duration-150 active:scale-95 ${
+                props.darkMode
+                  ? 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
+            <h2 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              Chats
+            </h2>
+          </div>
           <button
             type="button"
             onClick={props.onOpenCreateGroup}

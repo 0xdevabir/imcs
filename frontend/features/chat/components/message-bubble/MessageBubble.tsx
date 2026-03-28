@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChatMessage, GroupParticipant, Profile } from './types';
+import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 

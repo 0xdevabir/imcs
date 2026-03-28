@@ -1,7 +1,7 @@
 'use client';
 
 import { MutableRefObject, useEffect, useRef } from 'react';
-import { CallPeer, IncomingCall } from './types';
+import { CallPeer, IncomingCall } from '@/features/chat/types';
 
 interface CallUIProps {
   visible: boolean;

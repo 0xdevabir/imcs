@@ -1,4 +1,4 @@
-import { Profile } from '../messaging/types';
+import { Profile } from '@/features/chat/types';
 
 interface ProfileViewProps {
   profile: Profile;

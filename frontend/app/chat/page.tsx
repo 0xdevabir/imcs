@@ -1,17 +1,17 @@
 'use client';
 
-import { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL, authFetch, getAuthToken } from '@/lib/config';
-import { CallUI } from '@/components/messaging/CallUI';
-import { CallsPanel } from '@/components/messaging/CallsPanel';
-import { ChatList } from '@/components/messaging/ChatList';
-import { ChatWindow } from '@/components/messaging/ChatWindow';
-import { Sidebar } from '@/components/messaging/Sidebar';
-import { ContactsPanel } from '@/components/messaging/ContactsPanel';
-import { ProfileView } from '@/components/profile/ProfileView';
-import { SettingsView } from '@/components/profile/SettingsView';
+import { CallUI } from '@/features/calls/components/CallUI';
+import { CallsPanel } from '@/features/calls/components/CallsPanel';
+import { ChatList } from '@/features/chat/components/chat-list/ChatList';
+import { ChatWindow } from '@/features/chat/components/chat-window/ChatWindow';
+import { ContactsPanel } from '@/features/contacts/components/ContactsPanel';
+import { ProfileView } from '@/features/settings/components/ProfileView';
+import { SettingsView } from '@/features/settings/components/SettingsView';
+import { MeetingsPanel } from '@/features/meetings/components/MeetingsPanel';
 import {
   AppSection,
   CallHistoryItem,
@@ -26,7 +26,7 @@ import {
   RoomItem,
   UploadedFileResponse,
   UserStatus,
-} from '@/components/messaging/types';
+} from '@/features/chat/types';
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 const CLIENT_MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -94,7 +94,7 @@ export default function ChatPage() {
     if (stored === 'light') return false;
     return true;
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isNavModalOpen, setIsNavModalOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<AppSection>('chats');
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -919,6 +919,14 @@ export default function ChatPage() {
     touchStartX.current = null;
   };
 
+  const openSectionFromNavMenu = (section: AppSection) => {
+    setActiveSection(section);
+    setMobileSection(section);
+    setMobileChatOpen(false);
+    if (section === 'settings') setShowSettings(false);
+    setIsNavModalOpen(false);
+  };
+
   if (!profile) {
     return (
       <main className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-950' : 'bg-slate-100'}`}>
@@ -943,36 +951,42 @@ export default function ChatPage() {
 
   return (
     <main className={`${darkMode ? 'dark' : ''}`}>
-      <div className={`h-[calc(100vh-4rem)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-900'}`}>
+      <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
         <div className="mx-auto flex h-full max-w-[1800px]">
-          <Sidebar
-            collapsed={sidebarCollapsed}
-            activeSection={activeSection}
-            unreadCount={unreadTotal}
-            onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-            onSelectSection={setActiveSection}
-            darkMode={darkMode}
-            onToggleDarkMode={() => setDarkMode((c) => !c)}
-            profile={profile}
-            userStatus={userStatus}
-            onProfileClick={() => { setActiveSection('settings'); setShowSettings(false); }}
-          />
+          {activeSection === 'chats' && (
+            <div className="hidden md:flex h-full w-[360px] lg:w-[380px] shrink-0">
+              <ChatList
+                rooms={rooms}
+                activeRoomKey={activeRoomKey}
+                searchQuery={searchQuery}
+                onSearchQueryChange={setSearchQuery}
+                onOpenRoom={openRoom}
+                pinnedRoomKeys={pinnedRoomKeys}
+                onTogglePin={togglePin}
+                onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
+                onOpenNavMenu={() => setIsNavModalOpen(true)}
+                darkMode={darkMode}
+              />
+            </div>
+          )}
 
-          <div className="hidden md:flex h-full w-[380px] lg:w-[400px] shrink-0">
-            <ChatList
-              rooms={rooms}
-              activeRoomKey={activeRoomKey}
-              searchQuery={searchQuery}
-              onSearchQueryChange={setSearchQuery}
-              onOpenRoom={openRoom}
-              pinnedRoomKeys={pinnedRoomKeys}
-              onTogglePin={togglePin}
-              onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
-              darkMode={darkMode}
-            />
-          </div>
-
-          <div className="flex-1 flex flex-col overflow-hidden md:ml-3" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+          <div className="relative flex-1 flex flex-col overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+            {activeSection !== 'chats' && (
+              <button
+                type="button"
+                onClick={() => setIsNavModalOpen(true)}
+                className={`hidden md:flex absolute left-3 top-3 z-10 h-9 w-9 items-center justify-center rounded-xl border transition-colors ${
+                  darkMode
+                    ? 'border-slate-700/80 bg-slate-900 text-slate-300 hover:bg-slate-800'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                }`}
+                title="Open navigation"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
+                </svg>
+              </button>
+            )}
             {activeSection === 'contacts' ? (
               <div className="h-full flex">
                 <ContactsPanel
@@ -988,6 +1002,8 @@ export default function ChatPage() {
                   currentUserId={profile?.userId ?? 0}
                 />
               </div>
+            ) : activeSection === 'meetings' ? (
+              <MeetingsPanel darkMode={darkMode} />
             ) : activeSection === 'settings' && showSettings ? (
               <SettingsView
                 darkMode={darkMode}
@@ -1000,8 +1016,8 @@ export default function ChatPage() {
                 apiUrl={API_URL}
               />
             ) : activeSection === 'settings' ? (
-              <ProfileView 
-                profile={profile ?? { userId: 0, username: '', role: 'user' }} 
+              <ProfileView
+                profile={profile ?? { userId: 0, username: '', role: 'user' }}
                 darkMode={darkMode}
                 onOpenSettings={() => setShowSettings(true)}
               />
@@ -1025,6 +1041,7 @@ export default function ChatPage() {
                     pinnedRoomKeys={pinnedRoomKeys}
                     onTogglePin={togglePin}
                     onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
+                    onOpenNavMenu={() => setIsNavModalOpen(true)}
                     darkMode={darkMode}
                   />
                 </div>
@@ -1234,43 +1251,165 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Mobile bottom navigation */}
-        <div className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${darkMode ? 'border-slate-800/80 bg-slate-950/95' : 'border-slate-200 bg-white/98'}`} style={{ backdropFilter: 'blur(20px)', paddingBottom: 'env(safe-area-inset-bottom)' }}>
+        {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
+        <nav
+          className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
+            darkMode ? 'border-white/5 bg-slate-950/98' : 'border-slate-200 bg-white'
+          }`}
+          style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
           {([
-            { id: 'chats' as AppSection, label: 'Chats', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg> },
-            { id: 'calls' as AppSection, label: 'Calls', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg> },
-            { id: 'contacts' as AppSection, label: 'People', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg> },
-            { id: 'settings' as AppSection, label: 'Profile', icon: <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg> },
-          ]).map(({ id, label, icon }) => {
+            {
+              id: 'chats' as AppSection,
+              label: 'Chats',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'calls' as AppSection,
+              label: 'Calls',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'contacts' as AppSection,
+              label: 'Contacts',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'meetings' as AppSection,
+              label: 'Meetings',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              ),
+            },
+            {
+              id: 'settings' as AppSection,
+              label: 'Settings',
+              icon: (active: boolean) => (
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth={active ? 0 : 1.75}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              ),
+            },
+          ] as Array<{ id: AppSection; label: string; icon: (active: boolean) => React.ReactNode }>).map(({ id, label, icon }) => {
             const isActive = mobileSection === id;
             return (
               <button
                 key={id}
                 type="button"
-                onClick={() => { setMobileSection(id); setActiveSection(id); if (id !== 'chats') setMobileChatOpen(false); }}
-                className={`relative flex-1 flex flex-col items-center gap-1 py-3 text-[11px] font-semibold transition-all duration-150 ${
+                onClick={() => {
+                  setMobileSection(id);
+                  setActiveSection(id);
+                  if (id !== 'chats') setMobileChatOpen(false);
+                }}
+                className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${
                   isActive
                     ? darkMode ? 'text-blue-400' : 'text-blue-600'
-                    : darkMode ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-600'
+                    : darkMode ? 'text-slate-600' : 'text-slate-400'
                 }`}
               >
-                {/* Active indicator dot */}
+                {/* Active top line indicator */}
                 {isActive && (
-                  <span className="absolute top-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-blue-500" />
                 )}
-                {/* Badge for chats */}
+                {/* Unread badge */}
                 {id === 'chats' && unreadTotal > 0 && !isActive && (
-                  <span className="absolute top-1.5 right-[calc(50%-18px)] w-4 h-4 flex items-center justify-center rounded-full bg-blue-600 text-white text-[9px] font-bold">
+                  <span className="absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[9px] font-bold px-0.5">
                     {unreadTotal > 9 ? '9+' : unreadTotal}
                   </span>
                 )}
-                {icon}
+                <span className="relative">{icon(isActive)}</span>
                 <span>{label}</span>
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
+
+      {isNavModalOpen && (
+        <div className="fixed inset-0 z-40 flex">
+          <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsNavModalOpen(false)} />
+          <div className={`relative m-3 h-[calc(100%-1.5rem)] w-full max-w-xs rounded-2xl border shadow-2xl ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
+            <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+              <div className="flex items-center gap-2">
+                <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
+                  </svg>
+                </span>
+                <p className="text-sm font-semibold">Navigation</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNavModalOpen(false)}
+                className={`h-8 w-8 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+                title="Close"
+              >
+                <svg className="mx-auto h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <nav className="space-y-1 p-2">
+              {([
+                { id: 'chats', label: 'Chats', helper: 'All chats' },
+                { id: 'calls', label: 'Calls', helper: 'Call history and actions' },
+                { id: 'contacts', label: 'Contacts', helper: 'Manage people' },
+                { id: 'meetings', label: 'Meetings', helper: 'Meetings dashboard' },
+                { id: 'settings', label: 'Settings', helper: 'Profile and preferences' },
+              ] as Array<{ id: AppSection; label: string; helper: string }>).map((item) => {
+                const isActive = activeSection === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => openSectionFromNavMenu(item.id)}
+                    className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                      isActive
+                        ? darkMode
+                          ? 'bg-blue-500/15 text-blue-300'
+                          : 'bg-blue-50 text-blue-700'
+                        : darkMode
+                          ? 'text-slate-300 hover:bg-slate-800'
+                          : 'text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <p className="text-sm font-semibold">{item.label}</p>
+                    <p className={`text-[11px] ${isActive ? (darkMode ? 'text-blue-300/80' : 'text-blue-600/80') : (darkMode ? 'text-slate-500' : 'text-slate-400')}`}>
+                      {item.helper}
+                    </p>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div className={`absolute bottom-0 left-0 right-0 border-t px-3 py-3 ${darkMode ? 'border-slate-800 bg-slate-900/95' : 'border-slate-100 bg-white/95'}`}>
+              <button
+                type="button"
+                onClick={() => setDarkMode((current) => !current)}
+                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                {darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <CallUI
         visible={isCallActive || Boolean(incomingCall)}

@@ -1,6 +1,6 @@
-import { RefObject } from 'react';
-import { MessageBubble } from './MessageBubble';
-import { ChatMessage, GroupParticipant, Profile } from './types';
+import React, { RefObject } from 'react';
+import { MessageBubble } from '../message-bubble/MessageBubble';
+import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 
 interface ChatWindowProps {
   profile: Profile;
@@ -55,57 +55,44 @@ export function ChatWindow(props: ChatWindowProps) {
   const isGroup = props.participants.length > 2;
 
   return (
-    <section className={`flex h-full flex-1 flex-col overflow-hidden ${props.darkMode ? 'bg-slate-950 text-slate-100' : 'bg-white text-slate-900'}`}>
+    <section className={`flex h-full flex-1 flex-col overflow-hidden ${
+      props.darkMode ? 'bg-[#0d1117]' : 'bg-[#f0f2f5]'
+    }`}>
 
       {/* Header */}
-      <header
-        className={`flex-shrink-0 flex items-center justify-between px-3 py-3 sm:px-5 sm:py-3.5 border-b transition-all duration-300 ${
-          props.darkMode
-            ? 'border-slate-800/50 bg-slate-950/95'
-            : 'border-slate-100 bg-white/95'
-        }`}
-        style={{ backdropFilter: 'blur(20px)' }}
-      >
-        <div className="flex items-center gap-2 sm:gap-3.5 min-w-0">
+      <header className={`flex-shrink-0 flex items-center justify-between px-4 py-3 border-b z-10 ${
+        props.darkMode
+          ? 'border-white/5 bg-slate-900'
+          : 'border-slate-200 bg-white'
+      }`}>
+        <div className="flex items-center gap-3 min-w-0">
           {/* Back button – mobile only */}
           {props.onBack && (
             <button
               type="button"
               onClick={props.onBack}
-              className={`md:hidden flex-shrink-0 flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+              className={`md:hidden flex-shrink-0 -ml-1 flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
                 props.darkMode ? 'text-slate-400 hover:text-slate-100 hover:bg-slate-800' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
               }`}
-              title="Back to chats"
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
               </svg>
             </button>
           )}
+
           {/* Avatar */}
-          <div className={`flex-shrink-0 w-9 h-9 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}>
+          <div className={`flex-shrink-0 w-10 h-10 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}>
             {props.roomTitle.charAt(0).toUpperCase()}
           </div>
 
           {/* Room info */}
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-sm font-bold truncate">{props.roomTitle}</h2>
-              <span className={`hidden sm:inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold flex-shrink-0 ${
-                props.darkMode
-                  ? 'bg-emerald-500/10 text-emerald-400'
-                  : 'bg-emerald-50 text-emerald-600'
-              }`}>
-                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                </svg>
-                E2E Encrypted
-              </span>
-            </div>
-            <p className={`text-xs truncate mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
-              {isGroup
-                ? `${props.participants.length} members`
-                : props.roomStatus}
+            <h2 className={`text-sm font-semibold truncate leading-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+              {props.roomTitle}
+            </h2>
+            <p className={`text-xs truncate leading-tight mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+              {isGroup ? `${props.participants.length} members` : props.roomStatus}
             </p>
           </div>
         </div>
@@ -117,31 +104,35 @@ export function ChatWindow(props: ChatWindowProps) {
       </header>
 
       {/* Messages area */}
-      <div
-        className={`flex-1 overflow-y-auto px-3 py-3 sm:px-4 sm:py-4 md:px-6 ${
-          props.darkMode
-            ? 'bg-slate-950'
-            : 'bg-slate-50/60'
-        }`}
+      <div className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${
+        props.darkMode ? 'bg-[#0d1117]' : 'bg-[#efeae2]'
+      }`}
+        style={{
+          backgroundImage: props.darkMode
+            ? 'radial-gradient(circle at 25% 25%, rgba(30,41,59,0.3) 0%, transparent 50%), radial-gradient(circle at 75% 75%, rgba(15,23,42,0.3) 0%, transparent 50%)'
+            : undefined
+        }}
       >
         {props.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-inner ${
-              props.darkMode ? 'bg-slate-800/60' : 'bg-white'
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 shadow-sm ${
+              props.darkMode ? 'bg-slate-800/80' : 'bg-white/80'
             }`}>
-              <svg className={`w-8 h-8 ${props.darkMode ? 'text-slate-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <svg className={`w-8 h-8 ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className={`text-sm font-semibold mb-1.5 ${props.darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
-              Start a secure conversation
-            </p>
-            <p className={`text-xs max-w-[220px] leading-relaxed ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-              Messages in this chat are end-to-end encrypted. Only you and your recipients can read them.
-            </p>
+            <div className={`rounded-2xl px-5 py-3 shadow-sm max-w-xs ${props.darkMode ? 'bg-slate-800/60' : 'bg-white/80'}`}>
+              <p className={`text-sm font-medium mb-1 ${props.darkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                Start a secure conversation
+              </p>
+              <p className={`text-xs leading-relaxed ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+                Messages are end-to-end encrypted. Only participants can read them.
+              </p>
+            </div>
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             {props.messages.map((message, index) => {
               const msgDateStr = new Date(message.createdAt).toDateString();
               const prevDateStr = index > 0 ? new Date(props.messages[index - 1].createdAt).toDateString() : '';
@@ -151,10 +142,10 @@ export function ChatWindow(props: ChatWindowProps) {
                 <div key={message.id}>
                   {showDate && (
                     <div className="flex items-center justify-center py-4">
-                      <span className={`rounded-full px-3.5 py-1 text-[11px] font-medium shadow-sm ${
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-medium shadow-sm ${
                         props.darkMode
-                          ? 'bg-slate-800 text-slate-400 ring-1 ring-slate-700/50'
-                          : 'bg-white text-slate-500 ring-1 ring-slate-200'
+                          ? 'bg-slate-800/90 text-slate-400'
+                          : 'bg-white/90 text-slate-500 shadow-xs'
                       }`}>
                         {formatDateLabel(message.createdAt)}
                       </span>
@@ -176,15 +167,15 @@ export function ChatWindow(props: ChatWindowProps) {
 
             {/* Typing indicator */}
             {props.typingIndicator && (
-              <div className={`inline-flex items-center gap-2.5 rounded-2xl rounded-bl-sm px-4 py-2.5 text-xs max-w-[200px] mt-2 ${
+              <div className={`inline-flex items-center gap-2.5 rounded-2xl rounded-bl-sm px-4 py-2.5 text-xs max-w-[200px] mt-1 ${
                 props.darkMode
                   ? 'bg-slate-800 text-slate-400'
-                  : 'bg-white text-slate-500 shadow-sm ring-1 ring-slate-100'
+                  : 'bg-white text-slate-500 shadow-sm'
               }`}>
-                <span className="flex items-center gap-1">
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
-                  <span className="typing-dot" />
+                <span className="flex items-center gap-0.5">
+                  <span className="typing-dot w-1.5 h-1.5 rounded-full bg-current" />
+                  <span className="typing-dot w-1.5 h-1.5 rounded-full bg-current" style={{ animationDelay: '0.15s' }} />
+                  <span className="typing-dot w-1.5 h-1.5 rounded-full bg-current" style={{ animationDelay: '0.3s' }} />
                 </span>
                 <span className="truncate">{props.typingIndicator}</span>
               </div>
@@ -196,14 +187,11 @@ export function ChatWindow(props: ChatWindowProps) {
       </div>
 
       {/* Composer */}
-      <footer
-        className={`flex-shrink-0 border-t px-3 py-3 sm:px-4 sm:py-3.5 md:px-5 transition-all duration-300 ${
-          props.darkMode
-            ? 'border-slate-800/50 bg-slate-950/95'
-            : 'border-slate-100 bg-white/95'
-        }`}
-        style={{ backdropFilter: 'blur(20px)' }}
-      >
+      <footer className={`flex-shrink-0 border-t px-4 py-3 md:px-5 ${
+        props.darkMode
+          ? 'border-white/5 bg-slate-900'
+          : 'border-slate-200 bg-white'
+      }`}>
         {props.composer}
       </footer>
     </section>

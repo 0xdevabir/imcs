@@ -1,6 +1,6 @@
 'use client';
 
-import { CallHistoryItem } from './types';
+import { CallHistoryItem } from '@/features/chat/types';
 
 interface CallsPanelProps {
   callHistory: CallHistoryItem[];

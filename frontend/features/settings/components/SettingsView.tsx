@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { authFetch, clearAuthTokenCookie } from '@/lib/config';
-import { UserStatus } from '@/components/messaging/types';
+import { UserStatus } from '@/features/chat/types';
 
 interface SettingsViewProps {
   darkMode: boolean;

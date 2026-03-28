@@ -1,6 +1,6 @@
 import React, { RefObject } from 'react';
-import { MessageBubble } from './MessageBubble';
-import { ChatMessage, GroupParticipant, Profile } from './types';
+import { MessageBubble } from '../message-bubble/MessageBubble';
+import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 
 interface ChatWindowProps {
   profile: Profile;

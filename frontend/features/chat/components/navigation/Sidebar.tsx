@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { AppSection, Profile, UserStatus } from './types';
+import { AppSection, Profile, UserStatus } from '@/features/chat/types';
 
 interface SidebarProps {
   collapsed: boolean;

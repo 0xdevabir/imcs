@@ -139,26 +139,24 @@ export function SettingsView({ darkMode, onToggleDarkMode, onBack, profile, user
   }`;
 
   return (
-    <div className={`h-full flex flex-col ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+    <div className={`h-full flex flex-col ${darkMode ? 'bg-[#111b21]' : 'bg-[#f0f2f5]'}`}>
       {/* Header */}
-      <div className={`flex items-center gap-3 px-5 py-4 border-b flex-shrink-0 ${
-        darkMode ? 'border-slate-800 bg-slate-900/80' : 'border-slate-200/80 bg-white'
-      }`} style={{ backdropFilter: 'blur(20px)' }}>
+      <div className={`flex items-center gap-3 px-4 py-4 border-b flex-shrink-0 ${
+        darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-[#f0f2f5]'
+      }`}>
         <button
           type="button"
           onClick={onBack}
-          className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors ${
-            darkMode ? 'hover:bg-slate-800 text-slate-400 hover:text-slate-200' : 'hover:bg-slate-100 text-slate-500 hover:text-slate-800'
+          className={`w-9 h-9 flex items-center justify-center rounded-full transition-colors ${
+            darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-200'
           }`}
+          title="Close settings"
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
         </button>
-        <div>
-          <h1 className={`text-base font-bold ${darkMode ? 'text-white' : 'text-slate-900'}`}>Settings</h1>
-          <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Manage your account preferences</p>
-        </div>
+        <h1 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Settings</h1>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-5">

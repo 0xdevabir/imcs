@@ -10,6 +10,7 @@ import { ChatList } from '@/features/chat/components/chat-list/ChatList';
 import { ChatWindow } from '@/features/chat/components/chat-window/ChatWindow';
 import { Sidebar } from '@/features/chat/components/navigation/Sidebar';
 import { ContactsPanel } from '@/features/contacts/components/ContactsPanel';
+import { ProfileView } from '@/features/settings/components/ProfileView';
 import { SettingsView } from '@/features/settings/components/SettingsView';
 import { MeetingsPanel } from '@/features/meetings/components/MeetingsPanel';
 import {
@@ -96,6 +97,7 @@ export default function ChatPage() {
   });
   const [isNavModalOpen, setIsNavModalOpen] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [activeSection, setActiveSection] = useState<AppSection>('chats');
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
@@ -1033,21 +1035,12 @@ export default function ChatPage() {
                     currentUserId={profile?.userId ?? 0}
                   />
                 </div>
-                {/* Settings */}
+                {/* Settings — profile overview in middle panel */}
                 <div className={panelCls} style={{ transform: slide(3) }}>
-                  <SettingsView
+                  <ProfileView
+                    profile={profile ?? { userId: 0, username: '', role: 'user' }}
                     darkMode={darkMode}
-                    onToggleDarkMode={() => setDarkMode(!darkMode)}
-                    onBack={() => {
-                      setActiveSection('chats');
-                      setMobileSection('chats');
-                      setMobileChatOpen(false);
-                    }}
-                    profile={profile ?? { username: '', userId: 0, role: 'user' }}
-                    userStatus={userStatus}
-                    onStatusChange={updateStatus}
-                    onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
-                    apiUrl={API_URL}
+                    onOpenSettings={() => setShowSettings(true)}
                   />
                 </div>
                 {/* Meetings */}
@@ -1079,20 +1072,22 @@ export default function ChatPage() {
                   />
                 ) : activeSection === 'meetings' ? (
                   <MeetingsPanel darkMode={darkMode} />
-                ) : activeSection === 'settings' ? (
+                ) : activeSection === 'settings' && showSettings ? (
                   <SettingsView
                     darkMode={darkMode}
                     onToggleDarkMode={() => setDarkMode(!darkMode)}
-                    onBack={() => {
-                      setActiveSection('chats');
-                      setMobileSection('chats');
-                      setMobileChatOpen(false);
-                    }}
+                    onBack={() => setShowSettings(false)}
                     profile={profile ?? { username: '', userId: 0, role: 'user' }}
                     userStatus={userStatus}
                     onStatusChange={updateStatus}
                     onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
                     apiUrl={API_URL}
+                  />
+                ) : activeSection === 'settings' ? (
+                  <ProfileView
+                    profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                    darkMode={darkMode}
+                    onOpenSettings={() => setShowSettings(true)}
                   />
                 ) : activeSection === 'calls' ? (
                   <CallsPanel
@@ -1102,6 +1097,22 @@ export default function ChatPage() {
                     onStartVideoCall={handleVideoCall}
                   />
                 ) : null}
+              </div>
+            )}
+
+            {/* Desktop settings overlay — slides in over the ChatWindow */}
+            {showSettings && (
+              <div className="hidden md:flex absolute inset-0 z-20 flex-col">
+                <SettingsView
+                  darkMode={darkMode}
+                  onToggleDarkMode={() => setDarkMode(!darkMode)}
+                  onBack={() => setShowSettings(false)}
+                  profile={profile ?? { username: '', userId: 0, role: 'user' }}
+                  userStatus={userStatus}
+                  onStatusChange={updateStatus}
+                  onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
+                  apiUrl={API_URL}
+                />
               </div>
             )}
 

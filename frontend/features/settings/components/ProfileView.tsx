@@ -27,9 +27,15 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
   const isAdmin = profile.role === 'admin';
 
   return (
-    <div className={`h-full flex flex-col ${darkMode ? 'bg-slate-950' : 'bg-slate-50'}`}>
+    <div className={`h-full flex flex-col ${darkMode ? 'bg-[#111b21]' : 'bg-[#f0f2f5]'}`}>
+      {/* Header */}
+      <div className={`flex items-center px-4 py-4 border-b flex-shrink-0 ${
+        darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-[#f0f2f5]'
+      }`}>
+        <h2 className={`text-xl font-bold tracking-tight ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Profile</h2>
+      </div>
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-md mx-auto px-5 py-8">
+        <div className="max-w-md mx-auto px-5 py-6">
 
           {/* Hero avatar area */}
           <div className="text-center mb-8">
@@ -68,14 +74,14 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
 
           {/* Account info card */}
           <div className={`rounded-2xl overflow-hidden mb-4 ${
-            darkMode ? 'bg-slate-900 ring-1 ring-slate-800' : 'bg-white shadow-sm ring-1 ring-slate-100'
+            darkMode ? 'bg-[#202c33]' : 'bg-white shadow-sm'
           }`}>
-            <div className={`px-5 py-3 border-b ${darkMode ? 'border-slate-800' : 'border-slate-50'}`}>
-              <p className={`text-[11px] font-bold uppercase tracking-widest ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+            <div className={`px-5 py-3 border-b ${darkMode ? 'border-white/5' : 'border-slate-50'}`}>
+              <p className={`text-[11px] font-bold uppercase tracking-widest ${darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}>
                 Account Details
               </p>
             </div>
-            <div className={`divide-y ${darkMode ? 'divide-slate-800' : 'divide-slate-50'}`}>
+            <div className={`divide-y ${darkMode ? 'divide-white/5' : 'divide-slate-50'}`}>
               {[
                 {
                   icon: (
@@ -108,13 +114,13 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
                 <div key={label} className="flex items-center justify-between px-5 py-3.5">
                   <div className="flex items-center gap-3">
                     <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      darkMode ? 'bg-slate-800 text-slate-400' : 'bg-slate-100 text-slate-500'
+                      darkMode ? 'bg-[#2a3942] text-[#8696a0]' : 'bg-slate-100 text-slate-500'
                     }`}>
                       {icon}
                     </div>
-                    <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>{label}</p>
+                    <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}>{label}</p>
                   </div>
-                  <p className={`text-sm font-semibold ${darkMode ? 'text-slate-200' : 'text-slate-700'}`}>{value}</p>
+                  <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-slate-700'}`}>{value}</p>
                 </div>
               ))}
             </div>
@@ -147,22 +153,22 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
             onClick={onOpenSettings}
             className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl transition-all duration-200 group ${
               darkMode
-                ? 'bg-slate-900 ring-1 ring-slate-800 hover:bg-slate-800/80'
-                : 'bg-white ring-1 ring-slate-100 hover:shadow-md'
+                ? 'bg-[#202c33] hover:bg-[#2a3942]'
+                : 'bg-white hover:bg-slate-50 shadow-sm'
             }`}
           >
             <div className="flex items-center gap-3">
               <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-                darkMode ? 'bg-blue-500/15' : 'bg-blue-50'
+                darkMode ? 'bg-[#00a884]/15' : 'bg-[#00a884]/10'
               }`}>
-                <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <svg className="w-5 h-5 text-[#00a884]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
               </div>
               <div className="text-left">
-                <p className={`text-sm font-semibold ${darkMode ? 'text-white' : 'text-slate-900'}`}>Settings</p>
-                <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Theme, status, privacy, password</p>
+                <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Settings</p>
+                <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Theme, status, privacy, password</p>
               </div>
             </div>
             <svg className={`w-4 h-4 transition-transform group-hover:translate-x-0.5 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

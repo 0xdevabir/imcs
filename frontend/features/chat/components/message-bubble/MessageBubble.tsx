@@ -86,7 +86,7 @@ export function MessageBubble(props: MessageBubbleProps) {
       <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[65%]`}>
         {/* Sender name for group chats */}
         {!isMine && isGroup && (
-          <p className={`text-[11px] font-semibold mb-1 ml-1 ${props.darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+          <p className={`text-[12px] font-semibold mb-1 ml-1 ${props.darkMode ? 'text-[#00a884]' : 'text-[#008069]'}`}>
             {props.message.sender.username}
           </p>
         )}
@@ -155,26 +155,36 @@ export function MessageBubble(props: MessageBubbleProps) {
           {/* Main bubble */}
           <div className={`rounded-2xl overflow-hidden ${
             isMine
-              ? 'rounded-br-md bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-md shadow-blue-600/20'
+              ? props.darkMode
+                ? 'rounded-br-sm bg-[#005c4b] text-[#e9edef] shadow-sm'
+                : 'rounded-br-sm bg-[#d9fdd3] text-[#111b21] shadow-sm'
               : props.darkMode
-                ? 'rounded-bl-md bg-slate-800 text-slate-100 shadow-sm ring-1 ring-slate-700/50'
-                : 'rounded-bl-md bg-white text-slate-900 shadow-sm ring-1 ring-slate-200/80'
+                ? 'rounded-bl-sm bg-[#202c33] text-[#e9edef] shadow-sm'
+                : 'rounded-bl-sm bg-white text-[#111b21] shadow-sm'
           }`}>
 
             {/* Reply quote */}
             {props.message.replyTo && (
-              <div className={`px-3.5 pt-3 pb-0 ${isMine ? '' : ''}`}>
-                <div className={`rounded-lg border-l-2 px-2.5 py-2 text-xs ${
+              <div className="px-3.5 pt-3 pb-0">
+                <div className={`rounded-lg border-l-[3px] px-2.5 py-2 text-xs ${
                   isMine
-                    ? 'border-white/40 bg-white/10'
+                    ? props.darkMode
+                      ? 'border-[#00a884] bg-[#025144]'
+                      : 'border-[#25d366] bg-[#c8f5c0]'
                     : props.darkMode
-                      ? 'border-blue-500/60 bg-blue-500/8'
-                      : 'border-blue-400/60 bg-blue-50'
+                      ? 'border-[#00a884] bg-[#182229]'
+                      : 'border-[#25d366] bg-slate-50'
                 }`}>
-                  <p className={`font-semibold mb-0.5 ${isMine ? 'text-white/80' : props.darkMode ? 'text-blue-400' : 'text-blue-600'}`}>
+                  <p className={`font-semibold mb-0.5 ${
+                    props.darkMode ? 'text-[#00a884]' : 'text-[#008069]'
+                  }`}>
                     {props.message.replyTo.senderUsername}
                   </p>
-                  <p className={`truncate ${isMine ? 'text-white/60' : props.darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  <p className={`truncate ${
+                    isMine
+                      ? props.darkMode ? 'text-[#aebac1]' : 'text-[#54656f]'
+                      : props.darkMode ? 'text-[#8696a0]' : 'text-[#54656f]'
+                  }`}>
                     {props.message.replyTo.content}
                   </p>
                 </div>
@@ -184,7 +194,7 @@ export function MessageBubble(props: MessageBubbleProps) {
             {/* Content */}
             <div className="px-3.5 pt-2.5 pb-1.5">
               {props.message.isDeleted ? (
-                <p className={`text-sm italic flex items-center gap-1.5 ${isMine ? 'text-white/50' : props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                <p className={`text-sm italic flex items-center gap-1.5 ${props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                   </svg>
@@ -209,10 +219,12 @@ export function MessageBubble(props: MessageBubbleProps) {
                       title={data.users.join(', ')}
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-all hover:scale-105 active:scale-95 ${
                         isMine
-                          ? 'bg-white/15 hover:bg-white/25 text-white/90'
+                          ? props.darkMode
+                            ? 'bg-[#182229] hover:bg-[#111b21] text-[#e9edef]'
+                            : 'bg-[#c8f5c0] hover:bg-[#b5eaac] text-[#111b21]'
                           : props.darkMode
-                            ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            ? 'bg-[#182229] hover:bg-[#111b21] text-[#e9edef]'
+                            : 'bg-slate-100 hover:bg-slate-200 text-[#111b21]'
                       }`}
                     >
                       <span className="text-xs">{emoji}</span>
@@ -225,16 +237,22 @@ export function MessageBubble(props: MessageBubbleProps) {
 
             {/* Timestamp + status */}
             <div className={`flex items-center gap-1.5 px-3.5 pb-2.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <span className={`text-[10px] ${isMine ? 'text-white/50' : props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+              <span className={`text-[11px] ${
+                isMine
+                  ? props.darkMode ? 'text-[#8696a0]' : 'text-[#54656f]'
+                  : props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
+              }`}>
                 {new Date(props.message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
               {props.message.isEdited && !props.message.isDeleted && (
-                <span className={`text-[10px] italic ${isMine ? 'text-white/40' : props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                <span className={`text-[10px] italic ${
+                  props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
+                }`}>
                   edited
                 </span>
               )}
               {isMine && (
-                <span className={`${isMine ? 'text-white/60' : ''}`}>
+                <span>
                   {messageStatus(props.message, props.profile)}
                 </span>
               )}
@@ -328,12 +346,12 @@ function messageStatus(message: ChatMessage, profile: Profile): React.ReactNode 
   const hasRead = recipients.some((r) => r.status === 'READ');
   const hasDelivered = recipients.some((r) => r.status === 'DELIVERED' || r.status === 'READ');
 
-  // Double blue ticks (read)
+  // Double teal ticks (read) — WhatsApp style
   if (hasRead) {
     return (
-      <svg className="w-4 h-4 text-blue-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="w-4 h-4 text-[#53bdeb]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.6" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.8" />
       </svg>
     );
   }
@@ -341,16 +359,16 @@ function messageStatus(message: ChatMessage, profile: Profile): React.ReactNode 
   // Double grey ticks (delivered)
   if (hasDelivered) {
     return (
-      <svg className="w-4 h-4 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="w-4 h-4 text-[#8696a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
-        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.5" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.7" />
       </svg>
     );
   }
 
   // Single tick (sent)
   return (
-    <svg className="w-4 h-4 text-white/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+    <svg className="w-4 h-4 text-[#8696a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
     </svg>
   );

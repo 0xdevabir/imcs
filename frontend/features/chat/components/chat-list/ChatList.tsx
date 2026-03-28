@@ -161,13 +161,13 @@ export function ChatList(props: ChatListProps) {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-2.5 mt-2.5 px-0.5 overflow-x-auto pb-1 scrollbar-none">
+        <div className="flex items-center gap-3 mt-4 px-1.5 pt-2 pb-4 mb-1.5 overflow-x-auto scrollbar-none">
           {filterTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveFilter(tab.id)}
-              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-all duration-150 active:scale-95 ${
+              className={`min-h-[36px] px-4 py-2 rounded-full text-xs font-semibold whitespace-nowrap flex-shrink-0 transition-all duration-150 active:scale-95 ${
                 activeFilter === tab.id
                   ? props.darkMode
                     ? 'bg-[#00a884] text-white'
@@ -184,7 +184,7 @@ export function ChatList(props: ChatListProps) {
       </div>
 
       {/* Room list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pt-2">
         {pinned.length > 0 && (
           <div>
             <div className={`px-4 py-2 ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
@@ -331,11 +331,7 @@ function ChatListItem(props: ItemProps) {
         </div>
 
         {/* Content */}
-        <div
-          className={`flex-1 min-w-0 border-b pb-3 pt-0.5 ${
-            props.darkMode ? 'border-white/5' : 'border-slate-100'
-          }`}
-        >
+          <div className="flex-1 min-w-0 py-0.5">
           <div className="flex items-baseline justify-between gap-2">
             <p
               className={`text-[15px] font-medium truncate leading-tight ${

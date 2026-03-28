@@ -99,6 +99,8 @@ export default function ChatPage() {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [activeSection, setActiveSection] = useState<AppSection>('chats');
+  const [prevSection, setPrevSection] = useState<AppSection | null>(null);
+  const [slideDir, setSlideDir] = useState<1 | -1>(1); // 1 = entering from right, -1 = entering from left
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
 
@@ -932,8 +934,28 @@ export default function ChatPage() {
     touchStartX.current = null;
   };
 
-  const openSectionFromNavMenu = (section: AppSection) => {
+  const SECTION_ORDER: AppSection[] = ['chats', 'calls', 'contacts', 'settings', 'meetings'];
+
+  const goToSection = (section: AppSection) => {
+    if (section !== 'settings') setShowSettings(false);
+    if (section === activeSection) return;
+    const fromIdx = SECTION_ORDER.indexOf(activeSection);
+    const toIdx = SECTION_ORDER.indexOf(section);
+    setSlideDir(toIdx > fromIdx ? 1 : -1);
+    setPrevSection(activeSection);
     setActiveSection(section);
+    // Clear prevSection after the transition finishes so it stops rendering
+    setTimeout(() => setPrevSection(null), 320);
+  };
+
+  useEffect(() => {
+    if (activeSection !== 'settings' && showSettings) {
+      setShowSettings(false);
+    }
+  }, [activeSection, showSettings]);
+
+  const openSectionFromNavMenu = (section: AppSection) => {
+    goToSection(section);
     setMobileSection(section);
     setMobileChatOpen(false);
     setIsNavModalOpen(false);
@@ -972,7 +994,7 @@ export default function ChatPage() {
             unreadCount={unreadTotal}
             onToggleCollapsed={() => {}}
             onSelectSection={(section) => {
-              setActiveSection(section);
+              goToSection(section);
               setMobileSection(section);
               if (section !== 'chats') setMobileChatOpen(false);
             }}
@@ -981,7 +1003,7 @@ export default function ChatPage() {
             profile={profile ?? { userId: 0, username: '', role: 'user' }}
             userStatus={userStatus}
             onProfileClick={() => {
-              setActiveSection('settings');
+              goToSection('settings');
               setMobileSection('settings');
               setMobileChatOpen(false);
             }}
@@ -990,14 +1012,26 @@ export default function ChatPage() {
           {/* ── Desktop sliding middle panel (360px) ─────────────────────── */}
           {(() => {
             const PANELS: AppSection[] = ['chats', 'calls', 'contacts', 'settings', 'meetings'];
-            const idx = PANELS.indexOf(activeSection);
-            const slide = (panelIdx: number) =>
-              `translateX(${(panelIdx - idx) * 100}%)`;
-            const panelCls = 'absolute inset-0 h-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] will-change-transform overflow-hidden';
+            // For each panel: active → 0, leaving (prev) → exit direction, everything else → hidden off-screen (no transition)
+            const panelStyle = (panel: AppSection): React.CSSProperties => {
+              if (panel === activeSection) {
+                return { transform: 'translateX(0%)', transition: 'transform 300ms cubic-bezier(0.4,0,0.2,1)' };
+              }
+              if (panel === prevSection) {
+                // slide out opposite to where the new panel came from
+                return { transform: `translateX(${-slideDir * 100}%)`, transition: 'transform 300ms cubic-bezier(0.4,0,0.2,1)' };
+              }
+              // Idle panels: park them off-screen (same side as their eventual entry) with no transition
+              const panelIdx = PANELS.indexOf(panel);
+              const activeIdx = PANELS.indexOf(activeSection);
+              const side = panelIdx > activeIdx ? 1 : -1;
+              return { transform: `translateX(${side * 100}%)`, transition: 'none' };
+            };
+            const panelCls = 'absolute inset-0 h-full will-change-transform overflow-hidden';
             return (
               <div className={`hidden md:block relative w-[360px] shrink-0 overflow-hidden border-r ${darkMode ? 'border-white/5' : 'border-slate-200'}`}>
                 {/* Chats */}
-                <div className={panelCls} style={{ transform: slide(0) }}>
+                <div className={panelCls} style={panelStyle('chats')}>
                   <ChatList
                     rooms={rooms}
                     activeRoomKey={activeRoomKey}
@@ -1012,7 +1046,7 @@ export default function ChatPage() {
                   />
                 </div>
                 {/* Calls */}
-                <div className={panelCls} style={{ transform: slide(1) }}>
+                <div className={panelCls} style={panelStyle('calls')}>
                   <CallsPanel
                     callHistory={callHistory}
                     darkMode={darkMode}
@@ -1021,7 +1055,7 @@ export default function ChatPage() {
                   />
                 </div>
                 {/* Contacts */}
-                <div className={panelCls} style={{ transform: slide(2) }}>
+                <div className={panelCls} style={panelStyle('contacts')}>
                   <ContactsPanel
                     apiUrl={API_URL}
                     onlineUsers={onlineUsers}
@@ -1036,7 +1070,7 @@ export default function ChatPage() {
                   />
                 </div>
                 {/* Settings — profile overview in middle panel */}
-                <div className={panelCls} style={{ transform: slide(3) }}>
+                <div className={panelCls} style={panelStyle('settings')}>
                   <ProfileView
                     profile={profile ?? { userId: 0, username: '', role: 'user' }}
                     darkMode={darkMode}
@@ -1044,7 +1078,7 @@ export default function ChatPage() {
                   />
                 </div>
                 {/* Meetings */}
-                <div className={panelCls} style={{ transform: slide(4) }}>
+                <div className={panelCls} style={panelStyle('meetings')}>
                   <MeetingsPanel darkMode={darkMode} />
                 </div>
               </div>
@@ -1072,23 +1106,40 @@ export default function ChatPage() {
                   />
                 ) : activeSection === 'meetings' ? (
                   <MeetingsPanel darkMode={darkMode} />
-                ) : activeSection === 'settings' && showSettings ? (
-                  <SettingsView
-                    darkMode={darkMode}
-                    onToggleDarkMode={() => setDarkMode(!darkMode)}
-                    onBack={() => setShowSettings(false)}
-                    profile={profile ?? { username: '', userId: 0, role: 'user' }}
-                    userStatus={userStatus}
-                    onStatusChange={updateStatus}
-                    onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
-                    apiUrl={API_URL}
-                  />
                 ) : activeSection === 'settings' ? (
-                  <ProfileView
-                    profile={profile ?? { userId: 0, username: '', role: 'user' }}
-                    darkMode={darkMode}
-                    onOpenSettings={() => setShowSettings(true)}
-                  />
+                  <div className="relative h-full overflow-hidden">
+                    <div
+                      className={`absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                        showSettings
+                          ? '-translate-x-8 opacity-0 pointer-events-none'
+                          : 'translate-x-0 opacity-100'
+                      }`}
+                    >
+                      <ProfileView
+                        profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                        darkMode={darkMode}
+                        onOpenSettings={() => setShowSettings(true)}
+                      />
+                    </div>
+                    <div
+                      className={`absolute inset-0 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                        showSettings
+                          ? 'translate-x-0 opacity-100'
+                          : 'translate-x-full opacity-0 pointer-events-none'
+                      }`}
+                    >
+                      <SettingsView
+                        darkMode={darkMode}
+                        onToggleDarkMode={() => setDarkMode(!darkMode)}
+                        onBack={() => setShowSettings(false)}
+                        profile={profile ?? { username: '', userId: 0, role: 'user' }}
+                        userStatus={userStatus}
+                        onStatusChange={updateStatus}
+                        onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
+                        apiUrl={API_URL}
+                      />
+                    </div>
+                  </div>
                 ) : activeSection === 'calls' ? (
                   <CallsPanel
                     callHistory={callHistory}
@@ -1101,20 +1152,24 @@ export default function ChatPage() {
             )}
 
             {/* Desktop settings overlay — slides in over the ChatWindow */}
-            {showSettings && (
-              <div className="hidden md:flex absolute inset-0 z-20 flex-col">
-                <SettingsView
-                  darkMode={darkMode}
-                  onToggleDarkMode={() => setDarkMode(!darkMode)}
-                  onBack={() => setShowSettings(false)}
-                  profile={profile ?? { username: '', userId: 0, role: 'user' }}
-                  userStatus={userStatus}
-                  onStatusChange={updateStatus}
-                  onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
-                  apiUrl={API_URL}
-                />
-              </div>
-            )}
+            <div
+              className={`hidden md:flex absolute inset-0 z-20 flex-col transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] will-change-transform ${
+                showSettings
+                  ? 'translate-x-0 opacity-100'
+                  : 'translate-x-full opacity-0 pointer-events-none'
+              }`}
+            >
+              <SettingsView
+                darkMode={darkMode}
+                onToggleDarkMode={() => setDarkMode(!darkMode)}
+                onBack={() => setShowSettings(false)}
+                profile={profile ?? { username: '', userId: 0, role: 'user' }}
+                userStatus={userStatus}
+                onStatusChange={updateStatus}
+                onUsernameChange={(newUsername) => setProfile((p) => p ? { ...p, username: newUsername } : p)}
+                apiUrl={API_URL}
+              />
+            </div>
 
             {/* Chat area: desktop = always flex, mobile = only when section=chats */}
             <div className={`${activeSection !== 'chats' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden`}>
@@ -1429,8 +1484,8 @@ export default function ChatPage() {
                 key={id}
                 type="button"
                 onClick={() => {
+                  goToSection(id);
                   setMobileSection(id);
-                  setActiveSection(id);
                   if (id !== 'chats') setMobileChatOpen(false);
                 }}
                 className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${

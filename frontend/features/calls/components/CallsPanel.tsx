@@ -49,15 +49,15 @@ export function CallsPanel(props: CallsPanelProps) {
 
   return (
     <section className={`h-full flex flex-col ${
-      props.darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      props.darkMode ? 'bg-[#111b21] text-[#e9edef]' : 'bg-white text-[#111b21]'
     }`}>
       {/* Header */}
-      <div className={`px-5 pt-5 pb-4 border-b ${
-        props.darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-200 bg-white'
+      <div className={`px-4 pt-4 pb-3 border-b ${
+        props.darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'
       }`}>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+            <h1 className={`text-xl font-bold tracking-tight ${props.darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>
               Calls
             </h1>
             <p className={`text-xs mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
@@ -81,8 +81,8 @@ export function CallsPanel(props: CallsPanelProps) {
       <div className="flex-1 overflow-y-auto">
         {props.callHistory.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 py-16">
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 ${
-              props.darkMode ? 'bg-slate-800' : 'bg-white shadow-sm'
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-5 ${
+              props.darkMode ? 'bg-[#202c33]' : 'bg-slate-100'
             }`}>
               <svg className={`w-8 h-8 ${props.darkMode ? 'text-slate-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -188,7 +188,7 @@ function CallItem({
 
   return (
     <div className={`group flex items-center gap-3 px-4 py-3 transition-colors duration-100 ${
-      darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
+      darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'
     }`}>
       {/* Avatar */}
       <div className="relative flex-shrink-0">
@@ -197,7 +197,7 @@ function CallItem({
         </div>
         {/* Call type badge */}
         <div className={`absolute -bottom-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center ring-2 ${
-          darkMode ? 'ring-slate-950' : 'ring-white'
+          darkMode ? 'ring-[#111b21]' : 'ring-white'
         } ${call.callType === 'video' ? 'bg-blue-500' : isMissed ? 'bg-rose-500' : 'bg-emerald-500'}`}>
           {call.callType === 'video' ? (
             <svg className="w-2.5 h-2.5 text-white" fill="currentColor" viewBox="0 0 24 24">

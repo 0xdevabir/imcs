@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { authFetch, clearAuthTokenCookie } from '@/lib/config';
+import { authFetch } from '@/lib/config';
 import { UserStatus } from '@/features/chat/types';
 
 interface SettingsViewProps {
@@ -143,12 +143,6 @@ export function SettingsView({
       }
     } catch { setPwStatus({ type: 'error', msg: 'Network error. Please try again.' }); }
     finally { setPwLoading(false); }
-  };
-
-  const handleSignOut = async () => {
-    await authFetch(`${apiUrl}/auth/logout`, { method: 'POST' }).catch(() => undefined);
-    clearAuthTokenCookie();
-    window.location.href = '/login';
   };
 
   const inputCls = `w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition-all ${
@@ -515,20 +509,6 @@ export function SettingsView({
               )}
             </div>
 
-            {/* Sensitive actions */}
-            <div className={`mx-4 mb-4 rounded-xl px-4 py-3 border ${darkMode ? 'border-rose-500/20 bg-rose-500/5' : 'border-rose-200 bg-rose-50/50'}`}>
-              <p className="text-xs font-bold text-rose-500 mb-2">Sensitive actions</p>
-              <p className={`text-[11px] mb-3 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>These actions cannot be undone easily.</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="flex-1 text-xs font-semibold py-1.5 rounded-lg border border-rose-500/50 text-rose-500 hover:bg-rose-500/10 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </div>
-            </div>
           </SectionCard>
 
         </div>

@@ -161,7 +161,7 @@ export function ChatList(props: ChatListProps) {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-3 mt-4 px-1.5 pt-2 pb-4 mb-1.5 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-2 mt-2 px-1.5 pt-1.5 pb-1.5 overflow-x-auto scrollbar-none">
           {filterTabs.map((tab) => (
             <button
               key={tab.id}

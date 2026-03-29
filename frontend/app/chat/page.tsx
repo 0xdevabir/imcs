@@ -93,6 +93,8 @@ export default function ChatPage() {
   const [slideDir, setSlideDir] = useState<1 | -1>(1); // 1 = entering from right, -1 = entering from left
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileTransitioning, setMobileTransitioning] = useState(false);
+  const [mobilePrevSection, setMobilePrevSection] = useState<AppSection | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [pinnedRoomKeys, setPinnedRoomKeys] = useState<string[]>(['general']);
@@ -1061,7 +1063,7 @@ export default function ChatPage() {
     touchStartX.current = null;
   };
 
-  const SECTION_ORDER: AppSection[] = ['chats', 'calls', 'contacts', 'settings', 'meetings'];
+  const SECTION_ORDER: AppSection[] = ['chats', 'calls', 'contacts', 'meetings', 'settings'];
 
   const goToSection = (section: AppSection) => {
     if (section !== 'settings') setShowSettings(false);
@@ -1249,9 +1251,15 @@ export default function ChatPage() {
           {/* ── Right area ────────────────────────────────────────────────── */}
           <div className="relative flex-1 flex overflow-hidden" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
 
-            {/* Mobile-only: non-chat section full-screen views */}
+            {/* Mobile-only: non-chat section full-screen views with sliding animation */}
             {activeSection !== 'chats' && (
-              <div className="flex md:hidden absolute inset-0 z-10 flex-col">
+              <div className={`flex md:hidden absolute inset-0 z-10 flex-col ${
+                mobileTransitioning
+                  ? slideDir === 1
+                    ? 'animate-slide-in-right'
+                    : 'animate-slide-in-left'
+                  : ''
+              }`}>
                 {activeSection === 'contacts' ? (
                   <ContactsPanel
                     apiUrl={API_URL}
@@ -1352,7 +1360,7 @@ export default function ChatPage() {
               </div>
 
               {/* ChatWindow: desktop always, mobile when chat open */}
-              <div className={`${mobileChatOpen ? 'flex' : 'hidden'} md:flex flex-1 flex-col overflow-hidden`}>
+              <div className={`${mobileChatOpen ? 'flex animate-slide-in-right' : 'hidden'} md:flex flex-1 flex-col overflow-hidden`}>
                   <ChatWindow
                     profile={profile}
                     roomTitle={activeRoomName}
@@ -1620,7 +1628,7 @@ export default function ChatPage() {
           </div>{/* end right area */}
         </div>{/* end max-w-[1800px] */}
 
-        {/* Mobile bottom navigation — Telegram-style, 4 tabs */}
+        {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
           className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
             darkMode ? 'border-white/5 bg-slate-950/98' : 'border-slate-200 bg-white'
@@ -1664,16 +1672,41 @@ export default function ChatPage() {
                 </svg>
               ),
             },
-          ] as Array<{ id: AppSection; label: string; icon: (active: boolean) => React.ReactNode }>).map(({ id, label, icon }) => {
+            {
+              id: 'settings' as AppSection,
+              label: 'Profile',
+              icon: (active: boolean, profileData?: { username: string }) => {
+                const name = profileData?.username || 'U';
+                const grad = `from-blue-500 to-indigo-600`;
+                return (
+                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-[10px] font-bold text-white`}>
+                    {name.charAt(0).toUpperCase()}
+                  </div>
+                );
+              },
+              isProfile: true,
+            },
+          ] as Array<{ id: AppSection; label: string; icon: (active: boolean, profileData?: { username: string }) => React.ReactNode; isProfile?: boolean }>).map(({ id, label, icon, isProfile }) => {
             const isActive = mobileSection === id;
             return (
               <button
                 key={id}
                 type="button"
                 onClick={() => {
-                  goToSection(id);
-                  setMobileSection(id);
-                  if (id !== 'chats') setMobileChatOpen(false);
+                  if (id === mobileSection && id !== 'chats') return;
+                  if (id === mobileSection) return;
+                  const fromIdx = SECTION_ORDER.indexOf(mobileSection);
+                  const toIdx = SECTION_ORDER.indexOf(id);
+                  const direction = toIdx > fromIdx ? 1 : -1;
+                  setSlideDir(direction);
+                  setMobilePrevSection(mobileSection);
+                  setMobileTransitioning(true);
+                  setTimeout(() => {
+                    setMobileSection(id);
+                    setActiveSection(id);
+                    if (id !== 'chats') setMobileChatOpen(false);
+                    setMobileTransitioning(false);
+                  }, 200);
                 }}
                 className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${
                   isActive
@@ -1691,7 +1724,7 @@ export default function ChatPage() {
                     {unreadTotal > 9 ? '9+' : unreadTotal}
                   </span>
                 )}
-                <span className="relative">{icon(isActive)}</span>
+                <span className="relative">{isProfile ? icon(isActive, profile ?? undefined) : icon(isActive)}</span>
                 <span>{label}</span>
               </button>
             );

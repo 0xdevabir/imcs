@@ -345,3 +345,34 @@ p, span, label, input, button, select, textarea, td, th {
   background-color: #0b141a;
   background-image: url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M20 20c0-1 .4-2 1-2.8L28 8H12l7 9.2c.6.8 1 1.8 1 2.8s-.4 2-1 2.8L12 32h16l-7-9.2c-.6-.8-1-1.8-1-2.8z'/%3E%3C/g%3E%3C/svg%3E");
 }
+
+/* Mobile section slide animations */
+@keyframes slide-in-right {
+  from {
+    transform: translateX(30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-30px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 200ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}

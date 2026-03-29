@@ -3,7 +3,7 @@
 import React, { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
-import { API_URL, SOCKET_URL, authFetch, getAuthToken } from '@/lib/config';
+import { API_URL, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
 import { CallUI } from '@/features/calls/components/CallUI';
 import { CallsPanel } from '@/features/calls/components/CallsPanel';
 import { ChatList } from '@/features/chat/components/chat-list/ChatList';
@@ -952,6 +952,12 @@ export default function ChatPage() {
     setIsNavModalOpen(false);
   };
 
+  const handleLogout = async () => {
+    await authFetch(`${API_URL}/auth/logout`, { method: 'POST' }).catch(() => undefined);
+    clearAuthTokenCookie();
+    window.location.href = '/login';
+  };
+
   if (!profile) {
     return (
       <main className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-950' : 'bg-slate-100'}`}>
@@ -1093,6 +1099,7 @@ export default function ChatPage() {
                     profile={profile ?? { userId: 0, username: '', role: 'user' }}
                     darkMode={darkMode}
                     onOpenSettings={() => setShowSettings(true)}
+                    onLogout={handleLogout}
                   />
                 </div>
                 {/* Meetings */}
@@ -1137,6 +1144,7 @@ export default function ChatPage() {
                         profile={profile ?? { userId: 0, username: '', role: 'user' }}
                         darkMode={darkMode}
                         onOpenSettings={() => setShowSettings(true)}
+                        onLogout={handleLogout}
                       />
                     </div>
                     <div

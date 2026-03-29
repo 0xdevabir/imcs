@@ -4,6 +4,7 @@ interface ProfileViewProps {
   profile: Profile;
   darkMode: boolean;
   onOpenSettings: () => void;
+  onLogout: () => void;
 }
 
 const AVATAR_GRADIENTS = [
@@ -22,7 +23,7 @@ function avatarGradient(name: string): string {
   return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
 }
 
-export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewProps) {
+export function ProfileView({ profile, darkMode, onOpenSettings, onLogout }: ProfileViewProps) {
   const grad = avatarGradient(profile.username);
   const isAdmin = profile.role === 'admin';
 
@@ -151,7 +152,7 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl transition-all duration-200 group ${
+            className={`w-full flex items-center justify-between px-5 py-4 rounded-2xl transition-all duration-200 group mb-3 ${
               darkMode
                 ? 'bg-[#202c33] hover:bg-[#2a3942]'
                 : 'bg-white hover:bg-slate-50 shadow-sm'
@@ -174,6 +175,19 @@ export function ProfileView({ profile, darkMode, onOpenSettings }: ProfileViewPr
             <svg className={`w-4 h-4 transition-transform group-hover:translate-x-0.5 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
             </svg>
+          </button>
+
+          {/* Logout button */}
+          <button
+            type="button"
+            onClick={onLogout}
+            className={`w-full rounded-2xl px-5 py-4 text-sm font-semibold transition-colors border ${
+              darkMode
+                ? 'border-rose-500/20 bg-rose-500/5 text-rose-400 hover:bg-rose-500/10'
+                : 'border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100'
+            }`}
+          >
+            Sign Out
           </button>
         </div>
       </div>

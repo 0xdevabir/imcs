@@ -18,6 +18,7 @@ type SocketJwtPayload = {
   sub: number;
   username: string;
   role: 'admin' | 'user';
+  jti?: string;
 };
 
 type AuthenticatedUser = {
@@ -65,7 +66,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     private readonly usersService: UsersService,
   ) {}
 
-  handleConnection(client: Socket) {
+  async handleConnection(client: Socket) {
     const token = this.extractToken(client);
     if (!token) {
       client.emit('error', 'Missing token');
@@ -78,6 +79,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         secret: process.env.JWT_SECRET ?? 'dev_secret_change_me',
       });
 
+      // Validate session jti — reject if the token belongs to an old session
+      if (payload.jti) {
+        const session = await this.usersService.getActiveSession(payload.sub);
+        if (session && session.jti !== payload.jti) {
+          client.emit('session_invalidated', {
+            message: 'Your session has been taken over by another device.',
+          });
+          client.disconnect();
+          return;
+        }
+      }
+
       client.data.user = {
         userId: payload.sub,
         username: payload.username,
@@ -85,11 +98,28 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
 
       this.trackSocket(payload.sub, client.id);
+
+      // Auto-join all rooms the user belongs to so they receive messages from every room
+      const roomKeys = await this.eventsService.getRoomKeysForUser(payload.sub);
+      await Promise.all(roomKeys.map((key) => client.join(key)));
+
       client.emit('connected', client.data.user);
       this.emitOnlineUsers();
     } catch {
       client.emit('error', 'Unauthorized');
       client.disconnect();
+    }
+  }
+
+  /** Immediately push session_invalidated and disconnect all sockets for a user */
+  kickUser(userId: number) {
+    const socketIds = this.getSocketIds(userId);
+    for (const socketId of socketIds) {
+      this.server.to(socketId).emit('session_invalidated', {
+        message: 'You were signed out because your account was used on another device.',
+      });
+      const socket = this.server.sockets.sockets.get(socketId);
+      socket?.disconnect(true);
     }
   }
 

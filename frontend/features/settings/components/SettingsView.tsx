@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState } from 'react';
-import { authFetch, clearAuthTokenCookie } from '@/lib/config';
+import { authFetch } from '@/lib/config';
 import { UserStatus } from '@/features/chat/types';
+import { avatarGradient } from '@/lib/avatar';
 
 interface SettingsViewProps {
   darkMode: boolean;
@@ -20,18 +21,6 @@ const STATUS_OPTIONS: { value: UserStatus; label: string; desc: string; dot: str
   { value: 'dnd',       label: 'Do Not Disturb', desc: 'Mute all notifications',         dot: 'bg-rose-500',    ring: 'ring-rose-500/30' },
   { value: 'invisible', label: 'Invisible',       desc: 'Appear offline to others',       dot: 'bg-slate-400',   ring: 'ring-slate-500/30' },
 ];
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600', 'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600', 'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600', 'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-function avatarGradient(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length];
-}
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (
@@ -143,12 +132,6 @@ export function SettingsView({
       }
     } catch { setPwStatus({ type: 'error', msg: 'Network error. Please try again.' }); }
     finally { setPwLoading(false); }
-  };
-
-  const handleSignOut = async () => {
-    await authFetch(`${apiUrl}/auth/logout`, { method: 'POST' }).catch(() => undefined);
-    clearAuthTokenCookie();
-    window.location.href = '/login';
   };
 
   const inputCls = `w-full rounded-xl border px-4 py-2.5 text-sm outline-none transition-all ${
@@ -515,20 +498,6 @@ export function SettingsView({
               )}
             </div>
 
-            {/* Sensitive actions */}
-            <div className={`mx-4 mb-4 rounded-xl px-4 py-3 border ${darkMode ? 'border-rose-500/20 bg-rose-500/5' : 'border-rose-200 bg-rose-50/50'}`}>
-              <p className="text-xs font-bold text-rose-500 mb-2">Sensitive actions</p>
-              <p className={`text-[11px] mb-3 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>These actions cannot be undone easily.</p>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="flex-1 text-xs font-semibold py-1.5 rounded-lg border border-rose-500/50 text-rose-500 hover:bg-rose-500/10 transition-colors"
-                >
-                  Sign Out
-                </button>
-              </div>
-            </div>
           </SectionCard>
 
         </div>

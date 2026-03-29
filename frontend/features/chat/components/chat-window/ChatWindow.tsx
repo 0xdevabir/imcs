@@ -1,6 +1,7 @@
-import React, { RefObject } from 'react';
+import React, { RefObject, useMemo, useState } from 'react';
 import { MessageBubble } from '../message-bubble/MessageBubble';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
+import { avatarGradient } from '@/lib/avatar';
 
 interface ChatWindowProps {
   profile: Profile;
@@ -15,25 +16,12 @@ interface ChatWindowProps {
   onReply: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
+  hasMoreMessages?: boolean;
+  loadingMoreMessages?: boolean;
+  onLoadMore?: () => void;
   headerActions: React.ReactNode;
   composer: React.ReactNode;
   onBack?: () => void;
-}
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -50,9 +38,30 @@ function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: diff > 365 ? 'numeric' : undefined });
 }
 
-export function ChatWindow(props: ChatWindowProps) {
+type MessageRow =
+  | { type: 'date'; label: string; key: string }
+  | { type: 'message'; message: ChatMessage };
+
+export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps) {
   const grad = avatarGradient(props.roomTitle);
   const isGroup = props.participants.length > 2;
+  const [messageSearch, setMessageSearch] = useState('');
+
+  const filteredRows = useMemo<MessageRow[]>(() => {
+    const result: MessageRow[] = [];
+    let lastDateStr = '';
+    const searchLower = messageSearch.toLowerCase().trim();
+    for (const message of props.messages) {
+      if (searchLower && !message.content.toLowerCase().includes(searchLower)) continue;
+      const msgDateStr = new Date(message.createdAt).toDateString();
+      if (msgDateStr !== lastDateStr) {
+        lastDateStr = msgDateStr;
+        result.push({ type: 'date', label: formatDateLabel(message.createdAt), key: `date-${msgDateStr}` });
+      }
+      result.push({ type: 'message', message });
+    }
+    return result;
+  }, [props.messages, messageSearch]);
 
   return (
     <section className={`flex h-full flex-1 flex-col overflow-hidden ${
@@ -99,21 +108,31 @@ export function ChatWindow(props: ChatWindowProps) {
 
         {/* Header actions */}
         <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          {/* Message search */}
+          <div className={`hidden sm:flex items-center gap-1.5 rounded-lg px-2 py-1 ${props.darkMode ? 'bg-[#2a3942]' : 'bg-slate-100'}`}>
+            <svg className={`w-4 h-4 flex-shrink-0 ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input
+              value={messageSearch}
+              onChange={(e) => setMessageSearch(e.target.value)}
+              placeholder="Search messages..."
+              className={`w-32 bg-transparent text-xs outline-none ${props.darkMode ? 'text-slate-200 placeholder:text-slate-500' : 'text-slate-700 placeholder:text-slate-400'}`}
+            />
+            {messageSearch && (
+              <button type="button" onClick={() => setMessageSearch('')} className={`flex-shrink-0 ${props.darkMode ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'}`}>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
           {props.headerActions}
         </div>
       </header>
 
       {/* Messages area */}
-      <div
-        className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${
-          props.darkMode ? 'bg-[#0b141a]' : 'bg-[#efeae2]'
-        }`}
-        style={{
-          backgroundImage: props.darkMode
-            ? `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M20 20c0-1 .4-2 1-2.8L28 8H12l7 9.2c.6.8 1 1.8 1 2.8s-.4 2-1 2.8L12 32h16l-7-9.2c-.6-.8-1-1.8-1-2.8z'/%3E%3C/g%3E%3C/svg%3E")`
-            : `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.04'%3E%3Cpath d='M20 20c0-1 .4-2 1-2.8L28 8H12l7 9.2c.6.8 1 1.8 1 2.8s-.4 2-1 2.8L12 32h16l-7-9.2c-.6-.8-1-1.8-1-2.8z'/%3E%3C/g%3E%3C/svg%3E")`,
-        }}
-      >
+      <div className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
         {props.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-sm ${
@@ -134,37 +153,62 @@ export function ChatWindow(props: ChatWindowProps) {
           </div>
         ) : (
           <div className="space-y-0.5">
-            {props.messages.map((message, index) => {
-              const msgDateStr = new Date(message.createdAt).toDateString();
-              const prevDateStr = index > 0 ? new Date(props.messages[index - 1].createdAt).toDateString() : '';
-              const showDate = msgDateStr !== prevDateStr;
-
-              return (
-                <div key={message.id}>
-                  {showDate && (
-                    <div className="flex items-center justify-center py-4">
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-medium shadow-sm ${
-                        props.darkMode
-                          ? 'bg-[#182229] text-[#8696a0]'
-                          : 'bg-[#e1f3fb] text-[#54656f]'
-                      }`}>
-                        {formatDateLabel(message.createdAt)}
-                      </span>
-                    </div>
-                  )}
-                  <MessageBubble
-                    message={message}
-                    profile={props.profile}
-                    darkMode={props.darkMode}
-                    participants={props.participants}
-                    onReact={props.onReact}
-                    onReply={props.onReply}
-                    onStartEdit={props.onStartEdit}
-                    onDelete={props.onDelete}
-                  />
+            {/* Load more messages button */}
+            {props.hasMoreMessages && (
+              <div className="flex justify-center py-2">
+                <button
+                  type="button"
+                  onClick={props.onLoadMore}
+                  disabled={props.loadingMoreMessages}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                    props.darkMode
+                      ? 'bg-[#2a3942] hover:bg-[#364952] text-slate-300'
+                      : 'bg-slate-200 hover:bg-slate-300 text-slate-600'
+                  } ${props.loadingMoreMessages ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {props.loadingMoreMessages ? (
+                    <span className="flex items-center gap-1.5">
+                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Loading...
+                    </span>
+                  ) : 'Load older messages'}
+                </button>
+              </div>
+            )}
+            {filteredRows.length === 0 && messageSearch ? (
+              <div className="flex flex-col items-center justify-center py-10 text-center">
+                <p className={`text-sm ${props.darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+                  No messages found for "{messageSearch}"
+                </p>
+              </div>
+            ) : filteredRows.map((row) =>
+              row.type === 'date' ? (
+                <div key={row.key} className="flex items-center justify-center py-4">
+                  <span className={`rounded-full px-3 py-1 text-[11px] font-medium shadow-sm ${
+                    props.darkMode
+                      ? 'bg-[#182229] text-[#8696a0]'
+                      : 'bg-[#e1f3fb] text-[#54656f]'
+                  }`}>
+                    {row.label}
+                  </span>
                 </div>
-              );
-            })}
+              ) : (
+                <MessageBubble
+                  key={row.message.id}
+                  message={row.message}
+                  profile={props.profile}
+                  darkMode={props.darkMode}
+                  participants={props.participants}
+                  onReact={props.onReact}
+                  onReply={props.onReply}
+                  onStartEdit={props.onStartEdit}
+                  onDelete={props.onDelete}
+                />
+              )
+            )}
 
             {/* Typing indicator */}
             {props.typingIndicator && (
@@ -197,4 +241,4 @@ export function ChatWindow(props: ChatWindowProps) {
       </footer>
     </section>
   );
-}
+});

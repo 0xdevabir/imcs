@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { RoomItem } from '@/features/chat/types';
+import { avatarGradient } from '@/lib/avatar';
 
 interface ChatListProps {
   rooms: RoomItem[];
@@ -17,22 +18,6 @@ interface ChatListProps {
 }
 
 type FilterTab = 'all' | 'unread' | 'groups';
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-}
 
 export function ChatList(props: ChatListProps) {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
@@ -161,7 +146,7 @@ export function ChatList(props: ChatListProps) {
         </div>
 
         {/* Filter tabs */}
-        <div className="flex items-center gap-3 mt-4 px-1.5 pt-2 pb-4 mb-1.5 overflow-x-auto scrollbar-none">
+        <div className="flex items-center gap-2 mt-2 px-1.5 pt-1.5 pb-1.5 overflow-x-auto scrollbar-none">
           {filterTabs.map((tab) => (
             <button
               key={tab.id}

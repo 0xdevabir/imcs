@@ -157,6 +157,14 @@ export class EventsService {
     return Boolean(member);
   }
 
+  async getRoomKeysForUser(userId: number): Promise<string[]> {
+    const memberships = await this.prisma.chatRoomMember.findMany({
+      where: { userId },
+      select: { room: { select: { key: true } } },
+    });
+    return memberships.map((m) => m.room.key);
+  }
+
   async getRecentMessages(roomKey: string, limit = 50) {
     const room = await this.prisma.chatRoom.findUnique({ where: { key: roomKey } });
     if (!room) {

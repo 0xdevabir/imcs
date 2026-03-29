@@ -31,18 +31,7 @@ import {
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 const CLIENT_MAX_FILE_BYTES = 20 * 1024 * 1024;
-const QUICK_USERS_FALLBACK: SearchedUser[] = [
-  { userId: 1, username: 'ABIR', role: 'admin' },
-  { userId: 2, username: 'RAYAT', role: 'user' },
-  { userId: 3, username: 'ZION', role: 'user' },
-  { userId: 4, username: 'MEHERAZ', role: 'user' },
-  { userId: 5, username: 'NISHAK', role: 'user' },
-  { userId: 6, username: 'SAYED', role: 'user' },
-  { userId: 7, username: 'RAKIB', role: 'user' },
-  { userId: 8, username: 'ZAFOR', role: 'user' },
-  { userId: 9, username: 'SHAFIN', role: 'user' },
-  { userId: 10, username: 'ZOHIR', role: 'user' },
-];
+const QUICK_USERS_FALLBACK: SearchedUser[] = [];
 function buildRtcConfig(): RTCConfiguration {
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -95,6 +84,7 @@ export default function ChatPage() {
     if (stored === 'light') return false;
     return true;
   });
+  const [sessionKicked, setSessionKicked] = useState(false);
   const [isNavModalOpen, setIsNavModalOpen] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -587,6 +577,7 @@ export default function ChatPage() {
       }
     });
     socket.on('error', (message: string) => { setStatus(message); });
+    socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
     socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
     socket.on('group_created', async (payload: GroupSummary) => {
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
@@ -980,6 +971,33 @@ export default function ChatPage() {
           </Link>
         </div>
       </main>
+    );
+  }
+
+  /* ── Session kicked overlay ──────────────────────────────────────────── */
+  if (sessionKicked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 px-4">
+        <div className="w-full max-w-sm text-center">
+          {/* Animated icon */}
+          <div className="mx-auto mb-6 w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500/30 flex items-center justify-center">
+            <svg className="w-10 h-10 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">You've been signed out</h2>
+          <p className="text-slate-400 text-sm leading-relaxed mb-8">
+            Your account was signed in on another device or browser, so this session has been ended.
+          </p>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all active:scale-[0.98]"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14" /></svg>
+            Back to Login
+          </Link>
+        </div>
+      </div>
     );
   }
 

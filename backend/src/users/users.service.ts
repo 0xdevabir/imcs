@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { hash } from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -14,37 +15,7 @@ export class UsersService implements OnModuleInit {
   constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    const adminUsername = process.env.INIT_ADMIN_USERNAME ?? 'admin';
-    const adminPassword = process.env.INIT_ADMIN_PASSWORD ?? 'Admin123!';
-
-    await this.ensureUser({ username: adminUsername, password: adminPassword, role: 'admin' });
-
-    const quickUsers = [
-      { username: 'user1', password: 'User123!', role: 'user' as const },
-      { username: 'user2', password: 'User123!', role: 'user' as const },
-      { username: 'user3', password: 'User123!', role: 'user' as const },
-      { username: 'user4', password: 'User123!', role: 'user' as const },
-    ];
-
-    for (const user of quickUsers) {
-      await this.ensureUser(user);
-    }
-
-    const protoUsers = [
-      { username: 'ABIR',    password: 'Prototype1!', role: 'admin' as const },
-      { username: 'RAYAT',   password: 'Prototype1!', role: 'user' as const },
-      { username: 'ZION',    password: 'Prototype1!', role: 'user' as const },
-      { username: 'MEHERAZ', password: 'Prototype1!', role: 'user' as const },
-      { username: 'NISHAK',  password: 'Prototype1!', role: 'user' as const },
-      { username: 'SAYED',   password: 'Prototype1!', role: 'user' as const },
-      { username: 'RAKIB',   password: 'Prototype1!', role: 'user' as const },
-      { username: 'ZAFOR',   password: 'Prototype1!', role: 'user' as const },
-      { username: 'SHAFIN',  password: 'Prototype1!', role: 'user' as const },
-      { username: 'ZOHIR',   password: 'Prototype1!', role: 'user' as const },
-    ];
-    for (const user of protoUsers) {
-      await this.ensureUser(user);
-    }
+    await this.ensureUser({ username: 'ABIR', password: 'Prototype1!', role: 'admin' });
   }
 
   private toUserRecord(user: { id: number; username: string; password: string; role: 'admin' | 'user' }): UserRecord {
@@ -98,16 +69,31 @@ export class UsersService implements OnModuleInit {
 
   async createUser(input: {
     username: string;
-    password: string;
+    password?: string;
     role?: 'admin' | 'user';
   }): Promise<Omit<UserRecord, 'password'>> {
+    const existingUsers = await this.prisma.user.findMany({ select: { id: true } });
+
+    const password = input.password ?? randomBytes(24).toString('base64');
+
     const user = await this.prisma.user.create({
       data: {
         username: input.username,
-        password: await hash(input.password, 12),
+        password: await hash(password, 12),
         role: input.role ?? 'user',
       },
     });
+
+    // Auto-add new user to all existing users' contacts (bidirectional)
+    if (existingUsers.length > 0) {
+      await this.prisma.userContact.createMany({
+        data: [
+          ...existingUsers.map((e) => ({ userId: e.id, contactId: user.id })),
+          ...existingUsers.map((e) => ({ userId: user.id, contactId: e.id })),
+        ],
+        skipDuplicates: true,
+      });
+    }
 
     const { password: _password, ...safeUser } = this.toUserRecord(user);
     return safeUser;
@@ -130,7 +116,50 @@ export class UsersService implements OnModuleInit {
     const existing = await this.prisma.user.findUnique({ where: { username } });
     if (!existing) return false;
 
-    await this.prisma.user.delete({ where: { id: existing.id } });
+    const userId = existing.id;
+
+    await this.prisma.$transaction(async (tx) => {
+      // Remove from contacts (both directions)
+      await tx.userContact.deleteMany({ where: { OR: [{ userId }, { contactId: userId }] } });
+
+      // Remove communication rules
+      await tx.communicationRule.deleteMany({
+        where: { OR: [{ fromUsername: username }, { toUsername: username }] },
+      });
+
+      // Delete message receipts by this user
+      await tx.messageReceipt.deleteMany({ where: { userId } });
+
+      // Delete reactions by this user
+      await tx.messageReaction.deleteMany({ where: { userId } });
+
+      // Delete uploaded file records by this user
+      await tx.uploadedFile.deleteMany({ where: { uploaderUserId: userId } });
+
+      // Delete messages sent by this user (cascades receipts/reactions on those messages)
+      await tx.chatMessage.deleteMany({ where: { senderUserId: userId } });
+
+      // Find all rooms where this user is a member
+      const memberships = await tx.chatRoomMember.findMany({
+        where: { userId },
+        select: { roomId: true },
+      });
+      const roomIds = memberships.map((m) => m.roomId);
+
+      // Delete DM rooms (cascade deletes all messages, files, members, receipts, reactions)
+      if (roomIds.length > 0) {
+        await tx.chatRoom.deleteMany({
+          where: { id: { in: roomIds }, key: { startsWith: 'dm_' } },
+        });
+      }
+
+      // Remove user from group room memberships
+      await tx.chatRoomMember.deleteMany({ where: { userId } });
+
+      // Delete the user
+      await tx.user.delete({ where: { id: userId } });
+    });
+
     return true;
   }
 
@@ -193,6 +222,29 @@ export class UsersService implements OnModuleInit {
   async removeContact(userId: number, contactId: number): Promise<boolean> {
     const result = await this.prisma.userContact.deleteMany({ where: { userId, contactId } });
     return result.count > 0;
+  }
+
+  async setSession(userId: number, jti: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { sessionJti: jti, sessionCreatedAt: new Date() },
+    });
+  }
+
+  async clearSession(userId: number): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { sessionJti: null, sessionCreatedAt: null },
+    });
+  }
+
+  async getActiveSession(userId: number): Promise<{ jti: string; createdAt: Date } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { sessionJti: true, sessionCreatedAt: true },
+    });
+    if (!user?.sessionJti || !user.sessionCreatedAt) return null;
+    return { jti: user.sessionJti, createdAt: user.sessionCreatedAt };
   }
 
   async updateUsername(userId: number, newUsername: string): Promise<{ success: boolean; username?: string; message?: string }> {

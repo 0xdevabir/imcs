@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { avatarGradient } from '@/lib/avatar';
 
 interface MeetingsPanelProps {
   darkMode: boolean;
@@ -69,22 +70,6 @@ const MOCK_MEETINGS: Meeting[] = [
     meetingId: 'sec-8819-def9',
   },
 ];
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-}
 
 export function MeetingsPanel({ darkMode }: MeetingsPanelProps) {
   const [showStartModal, setShowStartModal] = useState(false);

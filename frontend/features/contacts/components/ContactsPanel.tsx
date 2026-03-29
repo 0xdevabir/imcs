@@ -3,22 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { authFetch } from '@/lib/config';
 import { OnlineUser, SearchedUser, UserStatus } from '@/features/chat/types';
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-}
+import { avatarGradient } from '@/lib/avatar';
 
 function statusDot(status: UserStatus | undefined) {
   if (status === 'dnd') return 'bg-rose-500';
@@ -187,30 +172,30 @@ export function ContactsPanel(props: ContactsPanelProps) {
         {isSearching ? (
           <div className="px-4 py-3">
             <SectionLabel label="Results" darkMode={props.darkMode} />
-            {otherUsers
-              .filter((u) => u.username.toLowerCase().includes(props.searchQuery.toLowerCase()))
-              .length === 0 ? (
-              <div className="text-center py-10">
-                <p className={`text-sm ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No users match "{props.searchQuery}"</p>
-              </div>
-            ) : (
-              otherUsers
-                .filter((u) => u.username.toLowerCase().includes(props.searchQuery.toLowerCase()))
-                .map((user) => (
-                  <ContactRow
-                    key={user.userId}
-                    user={user}
-                    isOnline={isOnline(user.userId)}
-                    onlineStatus={getStatus(user.userId)}
-                    isAdded={addedIds.includes(user.userId)}
-                    darkMode={props.darkMode}
-                    onMessage={() => props.onContactClick(user.userId, user.username)}
-                    onVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
-                    onVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
-                    onRemove={addedIds.includes(user.userId) ? () => handleRemove(user.userId, user.username) : undefined}
-                  />
-                ))
-            )}
+            {(() => {
+              const filteredUsers = otherUsers.filter((u) => u.username.toLowerCase().includes(props.searchQuery.toLowerCase()));
+              if (filteredUsers.length === 0) {
+                return (
+                  <div className="text-center py-10">
+                    <p className={`text-sm ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No users match "{props.searchQuery}"</p>
+                  </div>
+                );
+              }
+              return filteredUsers.map((user) => (
+                <ContactRow
+                  key={user.userId}
+                  user={user}
+                  isOnline={isOnline(user.userId)}
+                  onlineStatus={getStatus(user.userId)}
+                  isAdded={addedIds.includes(user.userId)}
+                  darkMode={props.darkMode}
+                  onMessage={() => props.onContactClick(user.userId, user.username)}
+                  onVoiceCall={() => props.onStartVoiceCall(user.userId, user.username)}
+                  onVideoCall={() => props.onStartVideoCall(user.userId, user.username)}
+                  onRemove={addedIds.includes(user.userId) ? () => handleRemove(user.userId, user.username) : undefined}
+                />
+              ));
+            })()}
           </div>
         ) : (
           <div>

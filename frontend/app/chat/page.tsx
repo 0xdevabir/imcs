@@ -105,6 +105,8 @@ export default function ChatPage() {
   const [memberUsernameInput, setMemberUsernameInput] = useState('');
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
@@ -160,6 +162,7 @@ export default function ChatPage() {
   const activeCallTypeRef = useRef<'voice' | 'video'>('video');
   const activeCallRoomKeyRef = useRef<string | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -639,7 +642,20 @@ export default function ChatPage() {
     });
     socket.on('group_member_removed', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) { const mineData = (await mineResponse.json()) as GroupSummary[]; setGroups(mineData); setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' }))); }
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms(prev => {
+          const existingKeys = new Set(mineData.map(g => g.key));
+          const filtered = prev.filter(r => existingKeys.has(r.key) || r.key.startsWith('dm_'));
+          const updatedGroups = mineData.map((g) => {
+            const existing = filtered.find(r => r.key === g.key);
+            return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          });
+          const dmRooms = filtered.filter(r => !mineData.some(g => g.key === r.key));
+          return [...updatedGroups, ...dmRooms];
+        });
+      }
     });
     return () => { cleanupCall(); socket.disconnect(); socketRef.current = null; };
   }, [profile]);
@@ -692,6 +708,23 @@ export default function ChatPage() {
     setParticipants(payload.participants); setCanManageMembers(payload.canManageMembers);
   };
 
+  const leaveGroup = async () => {
+    if (!profile || activeRoomKey.startsWith('dm_')) return;
+    const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/users/${profile.username}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) { setStatus('Could not leave group'); return; }
+    setStatus('Left the group');
+    setShowGroupInfo(false);
+    // Navigate to general or first available room
+    const availableRoom = rooms.find(r => r.key !== activeRoomKey && !r.key.startsWith('dm_'));
+    if (availableRoom) {
+      openRoom(availableRoom.key);
+    } else {
+      openRoom('general');
+    }
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
     if (!canSend || !socketRef.current || !profile) return;
@@ -723,12 +756,33 @@ export default function ChatPage() {
     setDraft(''); setReplyTo(null); socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: false });
   };
 
+  const loadOlderMessages = async () => {
+    if (!activeRoomKey || loadingMoreMessages || messages.length === 0) return;
+    setLoadingMoreMessages(true);
+    try {
+      const oldestMessage = messages[0];
+      const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/messages?before=${encodeURIComponent(oldestMessage.createdAt)}&limit=50`);
+      if (response.ok) {
+        const olderMessages = (await response.json()) as ChatMessage[];
+        if (olderMessages.length > 0) {
+          setMessages(prev => [...olderMessages.reverse(), ...prev]);
+          setHasMoreMessages(olderMessages.length === 50);
+        } else {
+          setHasMoreMessages(false);
+        }
+      }
+    } catch {
+      // Silently fail
+    }
+    setLoadingMoreMessages(false);
+  };
+
   const handleDraftChange = (value: string) => {
     setDraft(value);
     if (!socketRef.current) return;
-    socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: true });
+    socketRef.current.emit('typing', { roomKey: activeRoomRef.current, isTyping: true });
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
-    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomKey, isTyping: false }), 650);
+    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomRef.current, isTyping: false }), 650);
   };
 
   const handleMentionInsert = (username: string) => { setDraft((current) => current.replace(/@([a-zA-Z0-9_]*)$/, `@${username} `)); };
@@ -865,33 +919,29 @@ export default function ChatPage() {
 
   const handleContactClick = async (userId: number, username: string) => {
     const roomKey = `dm_${Math.min(userId, profile?.userId ?? 0)}_${Math.max(userId, profile?.userId ?? 0)}`;
-    const existingRoom = rooms.find(r => r.key === roomKey);
     
-    if (!existingRoom) {
+    // Ensure room exists in local state first
+    setRooms(prev => {
+      if (prev.some(r => r.key === roomKey)) return prev;
+      return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
+    });
+    
+    // If room doesn't exist on server, create it
+    if (!rooms.some(r => r.key === roomKey)) {
       await authFetch(`${API_URL}/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
       });
-      const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) {
-        const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
-        setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' })));
-      }
-    } else {
-      setRooms(prev => {
-        const alreadyInList = prev.some(r => r.key === roomKey);
-        if (alreadyInList) return prev;
-        return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
-      });
     }
     
+    // Open the room
     activeRoomRef.current = roomKey;
     setActiveSection('chats');
     setMobileSection('chats');
     setMobileChatOpen(true);
     setActiveRoomKey(roomKey);
+    setMessages([]); // Clear messages while loading
     socketRef.current?.emit('join_room', { roomKey });
   };
 
@@ -957,6 +1007,7 @@ export default function ChatPage() {
     try {
       if (!isScreenSharing) {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        displayStreamRef.current = displayStream;
         const displayTrack = displayStream.getVideoTracks()[0];
         for (const peer of Array.from(peersRef.current.values())) {
           const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
@@ -970,12 +1021,20 @@ export default function ChatPage() {
             const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
             if (fallback) await sender?.replaceTrack(fallback);
           }
+          if (displayStreamRef.current) {
+            displayStreamRef.current.getTracks().forEach(t => t.stop());
+            displayStreamRef.current = null;
+          }
           if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
           setLocalStream(localStreamRef.current);
           setIsScreenSharing(false);
         };
         setIsScreenSharing(true);
       } else {
+        if (displayStreamRef.current) {
+          displayStreamRef.current.getTracks().forEach(t => t.stop());
+          displayStreamRef.current = null;
+        }
         const fallback = cameraTrackRef.current;
         for (const peer of Array.from(peersRef.current.values())) {
           const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
@@ -1308,6 +1367,9 @@ export default function ChatPage() {
                     onReply={onReply}
                     onStartEdit={onStartEdit}
                     onDelete={onDelete}
+                    hasMoreMessages={hasMoreMessages}
+                    loadingMoreMessages={loadingMoreMessages}
+                    onLoadMore={loadOlderMessages}
                     headerActions={
                       <>
                         {(() => {
@@ -1348,17 +1410,19 @@ export default function ChatPage() {
                             </svg>
                           </Link>
                         )}
-                        {/* Group info / settings button */}
-                        <button
-                          type="button"
-                          onClick={() => setShowGroupInfo((v) => !v)}
-                          className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
-                          title="Group info"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button>
+                        {/* Group info / settings button - only show for groups, not DMs */}
+                        {!activeRoomKey.startsWith('dm_') && (
+                          <button
+                            type="button"
+                            onClick={() => setShowGroupInfo((v) => !v)}
+                            className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
+                            title="Group info"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
+                        )}
                       </>
                     }
                     composer={
@@ -1444,8 +1508,8 @@ export default function ChatPage() {
                   />
                 </div>
 
-                {/* Group info / settings slide-in panel */}
-                {showGroupInfo && (
+                {/* Group info / settings slide-in panel - only show for groups, not DMs */}
+                {showGroupInfo && !activeRoomKey.startsWith('dm_') && (
                   <div className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden ${darkMode ? 'border-white/5 bg-[#111b21]' : 'border-slate-200 bg-white'}`}>
                     {/* Panel header */}
                     <div className={`flex items-center gap-3 px-4 py-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
@@ -1512,6 +1576,26 @@ export default function ChatPage() {
                             Add
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Leave group */}
+                    {!activeRoomKey.startsWith('dm_') && activeRoomKey !== 'general' && (
+                      <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                        <button
+                          type="button"
+                          onClick={leaveGroup}
+                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                            darkMode
+                              ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                              : 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                          }`}
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                          </svg>
+                          Leave Group
+                        </button>
                       </div>
                     )}
                   </div>

@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { authFetch } from '@/lib/config';
 import { UserStatus } from '@/features/chat/types';
+import { avatarGradient } from '@/lib/avatar';
 
 interface SettingsViewProps {
   darkMode: boolean;
@@ -20,18 +21,6 @@ const STATUS_OPTIONS: { value: UserStatus; label: string; desc: string; dot: str
   { value: 'dnd',       label: 'Do Not Disturb', desc: 'Mute all notifications',         dot: 'bg-rose-500',    ring: 'ring-rose-500/30' },
   { value: 'invisible', label: 'Invisible',       desc: 'Appear offline to others',       dot: 'bg-slate-400',   ring: 'ring-slate-500/30' },
 ];
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600', 'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600', 'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600', 'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-function avatarGradient(name: string): string {
-  let h = 0;
-  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + ((h << 5) - h);
-  return AVATAR_GRADIENTS[Math.abs(h) % AVATAR_GRADIENTS.length];
-}
 
 function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
   return (

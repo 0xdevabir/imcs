@@ -3,28 +3,10 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { API_URL, buildApiHeaders, setAuthTokenCookie } from '@/lib/config';
+import { avatarGradient, AVATAR_GRADIENTS } from '@/lib/avatar';
 
 type User = { userId: number; username: string; role: 'admin' | 'user' };
 type ConflictState = { user: User; loading: boolean };
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-  'from-orange-500 to-red-600',
-  'from-teal-500 to-cyan-600',
-  'from-pink-500 to-rose-600',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-}
 
 export default function LoginPage() {
   const router = useRouter();

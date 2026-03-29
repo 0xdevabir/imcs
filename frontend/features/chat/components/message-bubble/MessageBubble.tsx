@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
+import { avatarGradient } from '@/lib/avatar';
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 
@@ -25,27 +26,6 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-const AVATAR_GRADIENTS = [
-  'from-blue-500 to-indigo-600',
-  'from-violet-500 to-purple-600',
-  'from-emerald-500 to-teal-600',
-  'from-rose-500 to-pink-600',
-  'from-amber-500 to-orange-600',
-  'from-cyan-500 to-sky-600',
-  'from-fuchsia-500 to-violet-600',
-];
-
-const gradientCache = new Map<string, string>();
-function avatarGradient(name: string): string {
-  const cached = gradientCache.get(name);
-  if (cached) return cached;
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  const result = AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
-  gradientCache.set(name, result);
-  return result;
 }
 
 interface MessageBubbleProps {
@@ -144,11 +124,29 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
               <div className={`w-px h-4 mx-0.5 ${props.darkMode ? 'bg-slate-700' : 'bg-slate-200'}`} />
               <button
                 type="button"
-                onClick={() => props.onReply(props.message)}
+                onClick={() => {
+                  const text = props.message.content;
+                  if (text && !props.message.isDeleted) {
+                    navigator.clipboard.writeText(text).catch(() => {});
+                  }
+                }}
                 className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
                   props.darkMode ? 'text-slate-400 hover:bg-slate-700 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
                 }`}
-                title="Reply"
+                title="Copy"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => props.onReply(props.message)}
+                disabled={props.message.isDeleted}
+                className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 ${
+                  props.darkMode ? 'text-slate-400 hover:bg-slate-700 hover:text-slate-200' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
+                }`}
+                title={props.message.isDeleted ? 'Cannot reply to deleted message' : 'Reply'}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />

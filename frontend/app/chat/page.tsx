@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
@@ -145,6 +145,8 @@ export default function ChatPage() {
   const typingClearTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingOptimisticsRef = useRef<string[]>([]); // FIFO queue of __temp__ IDs waiting for server confirmation
+  const resolvedOptimisticsRef = useRef<Set<string>>(new Set()); // tempIds the server already confirmed before React flushed them
 
   const touchStartX = useRef<number | null>(null);
   // One RTCPeerConnection per remote participant (key = userId)
@@ -186,9 +188,14 @@ export default function ChatPage() {
   }, [typingUsers]);
 
   const activeRoomName = useMemo(() => {
+    // For DM rooms, always show the other participant's name
+    if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
+      const other = participants.find((p) => Number(p.userId) !== Number(profile.userId));
+      if (other) return other.username;
+    }
     const room = rooms.find((item) => item.key === activeRoomKey);
     return room?.name ?? activeRoomKey;
-  }, [rooms, activeRoomKey]);
+  }, [rooms, activeRoomKey, participants, profile]);
 
   const mentionCandidates = useMemo(() => {
     const mentionMatch = draft.match(/@([a-zA-Z0-9_]*)$/);
@@ -273,7 +280,12 @@ export default function ChatPage() {
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
-  useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, activeRoomKey, typingIndicator]);
+  const prevScrollRoomRef = useRef(activeRoomKey);
+  useEffect(() => {
+    const switched = prevScrollRoomRef.current !== activeRoomKey;
+    prevScrollRoomRef.current = activeRoomKey;
+    messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
+  }, [messages, activeRoomKey, typingIndicator]);
 
   useEffect(() => {
     if (!profile) return;
@@ -438,12 +450,43 @@ export default function ChatPage() {
       });
     });
     socket.on('receive_message', (message: ChatMessage) => {
-      setMessages((prev) => (prev.some((item) => item.id === message.id) ? prev : [...prev, message]));
+      const isFromMe = Number(message.sender.userId) === Number(profile.userId);
+      const tempId = isFromMe && pendingOptimisticsRef.current.length > 0
+        ? pendingOptimisticsRef.current.shift()!
+        : null;
+
+      setMessages((prev) => {
+        if (prev.some((item) => item.id === message.id)) return prev;
+        if (tempId) {
+          const idx = prev.findIndex((item) => item.id === tempId);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = message;
+            return updated;
+          }
+          // Optimistic not in state yet — server beat React's flush.
+          // Add the real message now; mark tempId resolved so the pending setMessages skips it.
+          resolvedOptimisticsRef.current.add(tempId);
+        }
+        return [...prev, message];
+      });
       setRooms((prev) => {
         const current = prev.find((room) => room.key === message.roomKey);
+        // For DM rooms with no existing entry (or stale key fallback), derive name from sender
+        let name = current?.name;
+        if (!name || name === message.roomKey) {
+          if (message.roomKey.startsWith('dm_')) {
+            // Show the other person: sender if they sent it, otherwise the recipient is us
+            name = message.sender.userId !== profile.userId
+              ? message.sender.username
+              : current?.name ?? message.roomKey;
+          } else {
+            name = current?.name ?? message.roomKey;
+          }
+        }
         const nextRoom: RoomItem = {
           key: message.roomKey,
-          name: current?.name ?? message.roomKey,
+          name,
           unread: message.roomKey === activeRoomRef.current || message.sender.userId === profile.userId ? 0 : (current?.unread ?? 0) + 1,
           lastMessage: summarizeMessage(message.content),
           lastAt: message.createdAt,
@@ -585,7 +628,14 @@ export default function ChatPage() {
     });
     socket.on('group_member_added', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) { const mineData = (await mineResponse.json()) as GroupSummary[]; setGroups(mineData); }
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms((prev) => mineData.map((g) => {
+          const existing = prev.find((r) => r.key === g.key);
+          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+        }));
+      }
     });
     socket.on('group_member_removed', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
@@ -644,11 +694,31 @@ export default function ChatPage() {
 
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
-    if (!canSend || !socketRef.current) return;
+    if (!canSend || !socketRef.current || !profile) return;
     if (editingMessage) {
       socketRef.current.emit('edit_message', { messageId: editingMessage.id, content: draft.trim() });
       setEditingMessage(null); setDraft(''); return;
     }
+    const tempId = `__temp__${Date.now()}`;
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      roomKey: activeRoomKey,
+      sender: { userId: profile.userId, username: profile.username },
+      content: draft.trim(),
+      createdAt: new Date().toISOString(),
+      receipts: [],
+      reactions: [],
+      replyTo: replyTo ? { id: replyTo.id, senderUsername: replyTo.sender.username, content: replyTo.content } : null,
+    };
+    pendingOptimisticsRef.current.push(tempId);
+    setMessages((prev) => {
+      // Server already confirmed this message before React flushed this update — skip adding the optimistic
+      if (resolvedOptimisticsRef.current.has(tempId)) {
+        resolvedOptimisticsRef.current.delete(tempId);
+        return prev;
+      }
+      return [...prev, optimisticMsg];
+    });
     socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
     setDraft(''); setReplyTo(null); socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: false });
   };
@@ -680,10 +750,10 @@ export default function ChatPage() {
     finally { setTimeout(() => { setUploadState('idle'); setUploadProgress(0); }, 250); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
-  const onReact = (messageId: string, emoji: string) => { socketRef.current?.emit('add_reaction', { messageId, emoji }); };
-  const onReply = (message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); };
-  const onStartEdit = (message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); };
-  const onDelete = (message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); };
+  const onReact = useCallback((messageId: string, emoji: string) => { socketRef.current?.emit('add_reaction', { messageId, emoji }); }, []);
+  const onReply = useCallback((message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); }, []);
+  const onStartEdit = useCallback((message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); }, []);
+  const onDelete = useCallback((message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); }, []);
 
   const updateStatus = (status: UserStatus) => {
     setUserStatus(status);
@@ -809,8 +879,15 @@ export default function ChatPage() {
         setGroups(mineData);
         setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' })));
       }
+    } else {
+      setRooms(prev => {
+        const alreadyInList = prev.some(r => r.key === roomKey);
+        if (alreadyInList) return prev;
+        return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
+      });
     }
     
+    activeRoomRef.current = roomKey;
     setActiveSection('chats');
     setMobileSection('chats');
     setMobileChatOpen(true);

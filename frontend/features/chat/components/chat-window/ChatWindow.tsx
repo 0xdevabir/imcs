@@ -1,4 +1,4 @@
-import React, { RefObject } from 'react';
+import React, { RefObject, useMemo } from 'react';
 import { MessageBubble } from '../message-bubble/MessageBubble';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 
@@ -30,10 +30,15 @@ const AVATAR_GRADIENTS = [
   'from-fuchsia-500 to-violet-600',
 ];
 
+const gradientCache = new Map<string, string>();
 function avatarGradient(name: string): string {
+  const cached = gradientCache.get(name);
+  if (cached) return cached;
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+  const result = AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+  gradientCache.set(name, result);
+  return result;
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -50,9 +55,27 @@ function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: diff > 365 ? 'numeric' : undefined });
 }
 
-export function ChatWindow(props: ChatWindowProps) {
+type MessageRow =
+  | { type: 'date'; label: string; key: string }
+  | { type: 'message'; message: ChatMessage };
+
+export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps) {
   const grad = avatarGradient(props.roomTitle);
   const isGroup = props.participants.length > 2;
+
+  const rows = useMemo<MessageRow[]>(() => {
+    const result: MessageRow[] = [];
+    let lastDateStr = '';
+    for (const message of props.messages) {
+      const msgDateStr = new Date(message.createdAt).toDateString();
+      if (msgDateStr !== lastDateStr) {
+        lastDateStr = msgDateStr;
+        result.push({ type: 'date', label: formatDateLabel(message.createdAt), key: `date-${msgDateStr}` });
+      }
+      result.push({ type: 'message', message });
+    }
+    return result;
+  }, [props.messages]);
 
   return (
     <section className={`flex h-full flex-1 flex-col overflow-hidden ${
@@ -104,16 +127,7 @@ export function ChatWindow(props: ChatWindowProps) {
       </header>
 
       {/* Messages area */}
-      <div
-        className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${
-          props.darkMode ? 'bg-[#0b141a]' : 'bg-[#efeae2]'
-        }`}
-        style={{
-          backgroundImage: props.darkMode
-            ? `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.015'%3E%3Cpath d='M20 20c0-1 .4-2 1-2.8L28 8H12l7 9.2c.6.8 1 1.8 1 2.8s-.4 2-1 2.8L12 32h16l-7-9.2c-.6-.8-1-1.8-1-2.8z'/%3E%3C/g%3E%3C/svg%3E")`
-            : `url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.04'%3E%3Cpath d='M20 20c0-1 .4-2 1-2.8L28 8H12l7 9.2c.6.8 1 1.8 1 2.8s-.4 2-1 2.8L12 32h16l-7-9.2c-.6-.8-1-1.8-1-2.8z'/%3E%3C/g%3E%3C/svg%3E")`,
-        }}
-      >
+      <div className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
         {props.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-sm ${
@@ -134,37 +148,31 @@ export function ChatWindow(props: ChatWindowProps) {
           </div>
         ) : (
           <div className="space-y-0.5">
-            {props.messages.map((message, index) => {
-              const msgDateStr = new Date(message.createdAt).toDateString();
-              const prevDateStr = index > 0 ? new Date(props.messages[index - 1].createdAt).toDateString() : '';
-              const showDate = msgDateStr !== prevDateStr;
-
-              return (
-                <div key={message.id}>
-                  {showDate && (
-                    <div className="flex items-center justify-center py-4">
-                      <span className={`rounded-full px-3 py-1 text-[11px] font-medium shadow-sm ${
-                        props.darkMode
-                          ? 'bg-[#182229] text-[#8696a0]'
-                          : 'bg-[#e1f3fb] text-[#54656f]'
-                      }`}>
-                        {formatDateLabel(message.createdAt)}
-                      </span>
-                    </div>
-                  )}
-                  <MessageBubble
-                    message={message}
-                    profile={props.profile}
-                    darkMode={props.darkMode}
-                    participants={props.participants}
-                    onReact={props.onReact}
-                    onReply={props.onReply}
-                    onStartEdit={props.onStartEdit}
-                    onDelete={props.onDelete}
-                  />
+            {rows.map((row) =>
+              row.type === 'date' ? (
+                <div key={row.key} className="flex items-center justify-center py-4">
+                  <span className={`rounded-full px-3 py-1 text-[11px] font-medium shadow-sm ${
+                    props.darkMode
+                      ? 'bg-[#182229] text-[#8696a0]'
+                      : 'bg-[#e1f3fb] text-[#54656f]'
+                  }`}>
+                    {row.label}
+                  </span>
                 </div>
-              );
-            })}
+              ) : (
+                <MessageBubble
+                  key={row.message.id}
+                  message={row.message}
+                  profile={props.profile}
+                  darkMode={props.darkMode}
+                  participants={props.participants}
+                  onReact={props.onReact}
+                  onReply={props.onReply}
+                  onStartEdit={props.onStartEdit}
+                  onDelete={props.onDelete}
+                />
+              )
+            )}
 
             {/* Typing indicator */}
             {props.typingIndicator && (
@@ -197,4 +205,4 @@ export function ChatWindow(props: ChatWindowProps) {
       </footer>
     </section>
   );
-}
+});

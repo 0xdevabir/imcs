@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
@@ -37,10 +37,15 @@ const AVATAR_GRADIENTS = [
   'from-fuchsia-500 to-violet-600',
 ];
 
+const gradientCache = new Map<string, string>();
 function avatarGradient(name: string): string {
+  const cached = gradientCache.get(name);
+  if (cached) return cached;
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+  const result = AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+  gradientCache.set(name, result);
+  return result;
 }
 
 interface MessageBubbleProps {
@@ -56,20 +61,46 @@ interface MessageBubbleProps {
 
 const quickReactions = ['👍', '❤️', '😂', '🔥', '👏', '🎉'];
 
-export function MessageBubble(props: MessageBubbleProps) {
+function areEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
+  return (
+    prev.message === next.message &&
+    prev.profile.userId === next.profile.userId &&
+    prev.darkMode === next.darkMode &&
+    prev.participants === next.participants &&
+    prev.onReact === next.onReact &&
+    prev.onReply === next.onReply &&
+    prev.onStartEdit === next.onStartEdit &&
+    prev.onDelete === next.onDelete
+  );
+}
+
+export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const isMine = props.message.sender.userId === props.profile.userId;
-  const attachment = parseAttachmentMessage(props.message.content);
   const isGroup = props.participants.length > 2;
   const grad = avatarGradient(props.message.sender.username);
 
-  const groupedReactions = (props.message.reactions ?? []).reduce<Record<string, { count: number; users: string[] }>>(
-    (acc, item) => {
-      if (!acc[item.emoji]) acc[item.emoji] = { count: 0, users: [] };
-      acc[item.emoji].count += 1;
-      if (!acc[item.emoji].users.includes(item.username)) acc[item.emoji].users.push(item.username);
-      return acc;
-    },
-    {},
+  const attachment = useMemo(
+    () => parseAttachmentMessage(props.message.content),
+    [props.message.content],
+  );
+
+  const groupedReactions = useMemo(
+    () =>
+      (props.message.reactions ?? []).reduce<Record<string, { count: number; users: string[] }>>(
+        (acc, item) => {
+          if (!acc[item.emoji]) acc[item.emoji] = { count: 0, users: [] };
+          acc[item.emoji].count += 1;
+          if (!acc[item.emoji].users.includes(item.username)) acc[item.emoji].users.push(item.username);
+          return acc;
+        },
+        {},
+      ),
+    [props.message.reactions],
+  );
+
+  const timestamp = useMemo(
+    () => new Date(props.message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    [props.message.createdAt],
   );
 
   return (
@@ -242,7 +273,7 @@ export function MessageBubble(props: MessageBubbleProps) {
                   ? props.darkMode ? 'text-[#8696a0]' : 'text-[#54656f]'
                   : props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
               }`}>
-                {new Date(props.message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {timestamp}
               </span>
               {props.message.isEdited && !props.message.isDeleted && (
                 <span className={`text-[10px] italic ${
@@ -262,7 +293,7 @@ export function MessageBubble(props: MessageBubbleProps) {
       </div>
     </div>
   );
-}
+}, areEqual);
 
 function AttachmentContent({ attachment, isMine, darkMode }: { attachment: AttachmentPayload; isMine: boolean; darkMode: boolean }) {
   if (attachment.mimeType.startsWith('image/')) {

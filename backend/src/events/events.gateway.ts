@@ -98,6 +98,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       };
 
       this.trackSocket(payload.sub, client.id);
+
+      // Auto-join all rooms the user belongs to so they receive messages from every room
+      const roomKeys = await this.eventsService.getRoomKeysForUser(payload.sub);
+      await Promise.all(roomKeys.map((key) => client.join(key)));
+
       client.emit('connected', client.data.user);
       this.emitOnlineUsers();
     } catch {

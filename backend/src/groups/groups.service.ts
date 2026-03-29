@@ -270,14 +270,22 @@ export class GroupsService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return groups.map((group) => ({
-      key: group.key,
-      name: group.name,
-      ownerUserId: group.ownerUserId,
-      ownerUsername: group.ownerUsername,
-      participantCount: group.members.length,
-      participants: group.members,
-    }));
+    return groups.map((group) => {
+      let name = group.name;
+      // For DM rooms, always show the OTHER participant's name, not the stored room name
+      if (group.key.startsWith('dm_') && group.members.length === 2) {
+        const other = group.members.find((m) => m.userId !== user.userId);
+        if (other) name = other.username;
+      }
+      return {
+        key: group.key,
+        name,
+        ownerUserId: group.ownerUserId,
+        ownerUsername: group.ownerUsername,
+        participantCount: group.members.length,
+        participants: group.members,
+      };
+    });
   }
 
   async getParticipants(roomKey: string, user: RequestUser) {
@@ -323,11 +331,20 @@ export class GroupsService {
     const result = await this.getParticipants(group.key, input.actor);
     
     const allMemberIds = [...group.members.map(m => m.userId), user.userId];
-    this.emitGroupUpdate('group_member_added', { 
-      key: group.key, 
+    this.emitGroupUpdate('group_member_added', {
+      key: group.key,
       name: group.name,
-      addedUser: user.username 
+      addedUser: user.username
     }, allMemberIds);
+
+    // Make the newly added user's active sockets join the Socket.io room
+    // so they immediately receive messages broadcast to this room
+    const server = this.eventsGateway.server;
+    if (server) {
+      for (const socketId of this.getSocketIdsForUser(user.userId)) {
+        server.in(socketId).socketsJoin(group.key);
+      }
+    }
 
     return result;
   }

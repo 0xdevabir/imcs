@@ -14,6 +14,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { Public } from '../auth/public.decorator';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -49,6 +50,7 @@ export class UsersController {
     return this.usersService.searchUsers(query.trim());
   }
 
+  @Public()
   @Get('all')
   async getAllUsers() {
     return this.usersService.findAllSafe();

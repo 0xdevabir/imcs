@@ -1,9 +1,9 @@
 'use client';
 
-import React, { FormEvent, TouchEvent, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
-import { API_URL, SOCKET_URL, authFetch, getAuthToken } from '@/lib/config';
+import { API_URL, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
 import { CallUI } from '@/features/calls/components/CallUI';
 import { CallsPanel } from '@/features/calls/components/CallsPanel';
 import { ChatList } from '@/features/chat/components/chat-list/ChatList';
@@ -31,18 +31,7 @@ import {
 
 const FILE_MESSAGE_PREFIX = '__FILE__:';
 const CLIENT_MAX_FILE_BYTES = 20 * 1024 * 1024;
-const QUICK_USERS_FALLBACK: SearchedUser[] = [
-  { userId: 1, username: 'ABIR', role: 'admin' },
-  { userId: 2, username: 'RAYAT', role: 'user' },
-  { userId: 3, username: 'ZION', role: 'user' },
-  { userId: 4, username: 'MEHERAZ', role: 'user' },
-  { userId: 5, username: 'NISHAK', role: 'user' },
-  { userId: 6, username: 'SAYED', role: 'user' },
-  { userId: 7, username: 'RAKIB', role: 'user' },
-  { userId: 8, username: 'ZAFOR', role: 'user' },
-  { userId: 9, username: 'SHAFIN', role: 'user' },
-  { userId: 10, username: 'ZOHIR', role: 'user' },
-];
+const QUICK_USERS_FALLBACK: SearchedUser[] = [];
 function buildRtcConfig(): RTCConfiguration {
   const iceServers: RTCIceServer[] = [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -95,6 +84,7 @@ export default function ChatPage() {
     if (stored === 'light') return false;
     return true;
   });
+  const [sessionKicked, setSessionKicked] = useState(false);
   const [isNavModalOpen, setIsNavModalOpen] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -115,6 +105,8 @@ export default function ChatPage() {
   const [memberUsernameInput, setMemberUsernameInput] = useState('');
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
@@ -155,6 +147,8 @@ export default function ChatPage() {
   const typingClearTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingOptimisticsRef = useRef<string[]>([]); // FIFO queue of __temp__ IDs waiting for server confirmation
+  const resolvedOptimisticsRef = useRef<Set<string>>(new Set()); // tempIds the server already confirmed before React flushed them
 
   const touchStartX = useRef<number | null>(null);
   // One RTCPeerConnection per remote participant (key = userId)
@@ -168,6 +162,7 @@ export default function ChatPage() {
   const activeCallTypeRef = useRef<'voice' | 'video'>('video');
   const activeCallRoomKeyRef = useRef<string | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
+  const displayStreamRef = useRef<MediaStream | null>(null);
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -196,9 +191,14 @@ export default function ChatPage() {
   }, [typingUsers]);
 
   const activeRoomName = useMemo(() => {
+    // For DM rooms, always show the other participant's name
+    if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
+      const other = participants.find((p) => Number(p.userId) !== Number(profile.userId));
+      if (other) return other.username;
+    }
     const room = rooms.find((item) => item.key === activeRoomKey);
     return room?.name ?? activeRoomKey;
-  }, [rooms, activeRoomKey]);
+  }, [rooms, activeRoomKey, participants, profile]);
 
   const mentionCandidates = useMemo(() => {
     const mentionMatch = draft.match(/@([a-zA-Z0-9_]*)$/);
@@ -283,7 +283,12 @@ export default function ChatPage() {
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
-  useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, activeRoomKey, typingIndicator]);
+  const prevScrollRoomRef = useRef(activeRoomKey);
+  useEffect(() => {
+    const switched = prevScrollRoomRef.current !== activeRoomKey;
+    prevScrollRoomRef.current = activeRoomKey;
+    messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
+  }, [messages, activeRoomKey, typingIndicator]);
 
   useEffect(() => {
     if (!profile) return;
@@ -448,12 +453,43 @@ export default function ChatPage() {
       });
     });
     socket.on('receive_message', (message: ChatMessage) => {
-      setMessages((prev) => (prev.some((item) => item.id === message.id) ? prev : [...prev, message]));
+      const isFromMe = Number(message.sender.userId) === Number(profile.userId);
+      const tempId = isFromMe && pendingOptimisticsRef.current.length > 0
+        ? pendingOptimisticsRef.current.shift()!
+        : null;
+
+      setMessages((prev) => {
+        if (prev.some((item) => item.id === message.id)) return prev;
+        if (tempId) {
+          const idx = prev.findIndex((item) => item.id === tempId);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = message;
+            return updated;
+          }
+          // Optimistic not in state yet — server beat React's flush.
+          // Add the real message now; mark tempId resolved so the pending setMessages skips it.
+          resolvedOptimisticsRef.current.add(tempId);
+        }
+        return [...prev, message];
+      });
       setRooms((prev) => {
         const current = prev.find((room) => room.key === message.roomKey);
+        // For DM rooms with no existing entry (or stale key fallback), derive name from sender
+        let name = current?.name;
+        if (!name || name === message.roomKey) {
+          if (message.roomKey.startsWith('dm_')) {
+            // Show the other person: sender if they sent it, otherwise the recipient is us
+            name = message.sender.userId !== profile.userId
+              ? message.sender.username
+              : current?.name ?? message.roomKey;
+          } else {
+            name = current?.name ?? message.roomKey;
+          }
+        }
         const nextRoom: RoomItem = {
           key: message.roomKey,
-          name: current?.name ?? message.roomKey,
+          name,
           unread: message.roomKey === activeRoomRef.current || message.sender.userId === profile.userId ? 0 : (current?.unread ?? 0) + 1,
           lastMessage: summarizeMessage(message.content),
           lastAt: message.createdAt,
@@ -587,6 +623,7 @@ export default function ChatPage() {
       }
     });
     socket.on('error', (message: string) => { setStatus(message); });
+    socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
     socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
     socket.on('group_created', async (payload: GroupSummary) => {
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
@@ -594,11 +631,31 @@ export default function ChatPage() {
     });
     socket.on('group_member_added', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) { const mineData = (await mineResponse.json()) as GroupSummary[]; setGroups(mineData); }
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms((prev) => mineData.map((g) => {
+          const existing = prev.find((r) => r.key === g.key);
+          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+        }));
+      }
     });
     socket.on('group_member_removed', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) { const mineData = (await mineResponse.json()) as GroupSummary[]; setGroups(mineData); setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' }))); }
+      if (mineResponse.ok) {
+        const mineData = (await mineResponse.json()) as GroupSummary[];
+        setGroups(mineData);
+        setRooms(prev => {
+          const existingKeys = new Set(mineData.map(g => g.key));
+          const filtered = prev.filter(r => existingKeys.has(r.key) || r.key.startsWith('dm_'));
+          const updatedGroups = mineData.map((g) => {
+            const existing = filtered.find(r => r.key === g.key);
+            return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          });
+          const dmRooms = filtered.filter(r => !mineData.some(g => g.key === r.key));
+          return [...updatedGroups, ...dmRooms];
+        });
+      }
     });
     return () => { cleanupCall(); socket.disconnect(); socketRef.current = null; };
   }, [profile]);
@@ -651,23 +708,81 @@ export default function ChatPage() {
     setParticipants(payload.participants); setCanManageMembers(payload.canManageMembers);
   };
 
+  const leaveGroup = async () => {
+    if (!profile || activeRoomKey.startsWith('dm_')) return;
+    const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/users/${profile.username}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) { setStatus('Could not leave group'); return; }
+    setStatus('Left the group');
+    setShowGroupInfo(false);
+    // Navigate to general or first available room
+    const availableRoom = rooms.find(r => r.key !== activeRoomKey && !r.key.startsWith('dm_'));
+    if (availableRoom) {
+      openRoom(availableRoom.key);
+    } else {
+      openRoom('general');
+    }
+  };
+
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
-    if (!canSend || !socketRef.current) return;
+    if (!canSend || !socketRef.current || !profile) return;
     if (editingMessage) {
       socketRef.current.emit('edit_message', { messageId: editingMessage.id, content: draft.trim() });
       setEditingMessage(null); setDraft(''); return;
     }
+    const tempId = `__temp__${Date.now()}`;
+    const optimisticMsg: ChatMessage = {
+      id: tempId,
+      roomKey: activeRoomKey,
+      sender: { userId: profile.userId, username: profile.username },
+      content: draft.trim(),
+      createdAt: new Date().toISOString(),
+      receipts: [],
+      reactions: [],
+      replyTo: replyTo ? { id: replyTo.id, senderUsername: replyTo.sender.username, content: replyTo.content } : null,
+    };
+    pendingOptimisticsRef.current.push(tempId);
+    setMessages((prev) => {
+      // Server already confirmed this message before React flushed this update — skip adding the optimistic
+      if (resolvedOptimisticsRef.current.has(tempId)) {
+        resolvedOptimisticsRef.current.delete(tempId);
+        return prev;
+      }
+      return [...prev, optimisticMsg];
+    });
     socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
     setDraft(''); setReplyTo(null); socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: false });
+  };
+
+  const loadOlderMessages = async () => {
+    if (!activeRoomKey || loadingMoreMessages || messages.length === 0) return;
+    setLoadingMoreMessages(true);
+    try {
+      const oldestMessage = messages[0];
+      const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/messages?before=${encodeURIComponent(oldestMessage.createdAt)}&limit=50`);
+      if (response.ok) {
+        const olderMessages = (await response.json()) as ChatMessage[];
+        if (olderMessages.length > 0) {
+          setMessages(prev => [...olderMessages.reverse(), ...prev]);
+          setHasMoreMessages(olderMessages.length === 50);
+        } else {
+          setHasMoreMessages(false);
+        }
+      }
+    } catch {
+      // Silently fail
+    }
+    setLoadingMoreMessages(false);
   };
 
   const handleDraftChange = (value: string) => {
     setDraft(value);
     if (!socketRef.current) return;
-    socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: true });
+    socketRef.current.emit('typing', { roomKey: activeRoomRef.current, isTyping: true });
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
-    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomKey, isTyping: false }), 650);
+    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomRef.current, isTyping: false }), 650);
   };
 
   const handleMentionInsert = (username: string) => { setDraft((current) => current.replace(/@([a-zA-Z0-9_]*)$/, `@${username} `)); };
@@ -689,10 +804,10 @@ export default function ChatPage() {
     finally { setTimeout(() => { setUploadState('idle'); setUploadProgress(0); }, 250); if (fileInputRef.current) fileInputRef.current.value = ''; }
   };
 
-  const onReact = (messageId: string, emoji: string) => { socketRef.current?.emit('add_reaction', { messageId, emoji }); };
-  const onReply = (message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); };
-  const onStartEdit = (message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); };
-  const onDelete = (message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); };
+  const onReact = useCallback((messageId: string, emoji: string) => { socketRef.current?.emit('add_reaction', { messageId, emoji }); }, []);
+  const onReply = useCallback((message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); }, []);
+  const onStartEdit = useCallback((message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); }, []);
+  const onDelete = useCallback((message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); }, []);
 
   const updateStatus = (status: UserStatus) => {
     setUserStatus(status);
@@ -804,26 +919,29 @@ export default function ChatPage() {
 
   const handleContactClick = async (userId: number, username: string) => {
     const roomKey = `dm_${Math.min(userId, profile?.userId ?? 0)}_${Math.max(userId, profile?.userId ?? 0)}`;
-    const existingRoom = rooms.find(r => r.key === roomKey);
     
-    if (!existingRoom) {
+    // Ensure room exists in local state first
+    setRooms(prev => {
+      if (prev.some(r => r.key === roomKey)) return prev;
+      return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
+    });
+    
+    // If room doesn't exist on server, create it
+    if (!rooms.some(r => r.key === roomKey)) {
       await authFetch(`${API_URL}/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
       });
-      const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-      if (mineResponse.ok) {
-        const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
-        setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' })));
-      }
     }
     
+    // Open the room
+    activeRoomRef.current = roomKey;
     setActiveSection('chats');
     setMobileSection('chats');
     setMobileChatOpen(true);
     setActiveRoomKey(roomKey);
+    setMessages([]); // Clear messages while loading
     socketRef.current?.emit('join_room', { roomKey });
   };
 
@@ -889,6 +1007,7 @@ export default function ChatPage() {
     try {
       if (!isScreenSharing) {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        displayStreamRef.current = displayStream;
         const displayTrack = displayStream.getVideoTracks()[0];
         for (const peer of Array.from(peersRef.current.values())) {
           const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
@@ -902,12 +1021,20 @@ export default function ChatPage() {
             const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
             if (fallback) await sender?.replaceTrack(fallback);
           }
+          if (displayStreamRef.current) {
+            displayStreamRef.current.getTracks().forEach(t => t.stop());
+            displayStreamRef.current = null;
+          }
           if (localStreamRef.current && localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
           setLocalStream(localStreamRef.current);
           setIsScreenSharing(false);
         };
         setIsScreenSharing(true);
       } else {
+        if (displayStreamRef.current) {
+          displayStreamRef.current.getTracks().forEach(t => t.stop());
+          displayStreamRef.current = null;
+        }
         const fallback = cameraTrackRef.current;
         for (const peer of Array.from(peersRef.current.values())) {
           const sender = peer.getSenders().find((s: RTCRtpSender) => s.track?.kind === 'video');
@@ -961,6 +1088,12 @@ export default function ChatPage() {
     setIsNavModalOpen(false);
   };
 
+  const handleLogout = async () => {
+    await authFetch(`${API_URL}/auth/logout`, { method: 'POST' }).catch(() => undefined);
+    clearAuthTokenCookie();
+    window.location.href = '/login';
+  };
+
   if (!profile) {
     return (
       <main className={`min-h-screen flex items-center justify-center ${darkMode ? 'bg-slate-950' : 'bg-slate-100'}`}>
@@ -983,10 +1116,37 @@ export default function ChatPage() {
     );
   }
 
+  /* ── Session kicked overlay ──────────────────────────────────────────── */
+  if (sessionKicked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 px-4">
+        <div className="w-full max-w-sm text-center">
+          {/* Animated icon */}
+          <div className="mx-auto mb-6 w-20 h-20 rounded-full bg-rose-500/10 border-2 border-rose-500/30 flex items-center justify-center">
+            <svg className="w-10 h-10 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-2">You've been signed out</h2>
+          <p className="text-slate-400 text-sm leading-relaxed mb-8">
+            Your account was signed in on another device or browser, so this session has been ended.
+          </p>
+          <Link
+            href="/login"
+            className="inline-flex items-center justify-center gap-2 w-full rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all active:scale-[0.98]"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14" /></svg>
+            Back to Login
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className={`${darkMode ? 'dark' : ''}`}>
       <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
-        <div className="mx-auto flex h-full max-w-[1800px]">
+        <div className="flex h-full">
           {/* Left nav sidebar — always visible on desktop */}
           <Sidebar
             collapsed={false}
@@ -1075,6 +1235,7 @@ export default function ChatPage() {
                     profile={profile ?? { userId: 0, username: '', role: 'user' }}
                     darkMode={darkMode}
                     onOpenSettings={() => setShowSettings(true)}
+                    onLogout={handleLogout}
                   />
                 </div>
                 {/* Meetings */}
@@ -1119,6 +1280,7 @@ export default function ChatPage() {
                         profile={profile ?? { userId: 0, username: '', role: 'user' }}
                         darkMode={darkMode}
                         onOpenSettings={() => setShowSettings(true)}
+                        onLogout={handleLogout}
                       />
                     </div>
                     <div
@@ -1205,6 +1367,9 @@ export default function ChatPage() {
                     onReply={onReply}
                     onStartEdit={onStartEdit}
                     onDelete={onDelete}
+                    hasMoreMessages={hasMoreMessages}
+                    loadingMoreMessages={loadingMoreMessages}
+                    onLoadMore={loadOlderMessages}
                     headerActions={
                       <>
                         {(() => {
@@ -1245,17 +1410,19 @@ export default function ChatPage() {
                             </svg>
                           </Link>
                         )}
-                        {/* Group info / settings button */}
-                        <button
-                          type="button"
-                          onClick={() => setShowGroupInfo((v) => !v)}
-                          className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
-                          title="Group info"
-                        >
-                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                        </button>
+                        {/* Group info / settings button - only show for groups, not DMs */}
+                        {!activeRoomKey.startsWith('dm_') && (
+                          <button
+                            type="button"
+                            onClick={() => setShowGroupInfo((v) => !v)}
+                            className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
+                            title="Group info"
+                          >
+                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </button>
+                        )}
                       </>
                     }
                     composer={
@@ -1341,8 +1508,8 @@ export default function ChatPage() {
                   />
                 </div>
 
-                {/* Group info / settings slide-in panel */}
-                {showGroupInfo && (
+                {/* Group info / settings slide-in panel - only show for groups, not DMs */}
+                {showGroupInfo && !activeRoomKey.startsWith('dm_') && (
                   <div className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden ${darkMode ? 'border-white/5 bg-[#111b21]' : 'border-slate-200 bg-white'}`}>
                     {/* Panel header */}
                     <div className={`flex items-center gap-3 px-4 py-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
@@ -1409,6 +1576,26 @@ export default function ChatPage() {
                             Add
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Leave group */}
+                    {!activeRoomKey.startsWith('dm_') && activeRoomKey !== 'general' && (
+                      <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                        <button
+                          type="button"
+                          onClick={leaveGroup}
+                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                            darkMode
+                              ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                              : 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                          }`}
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                          </svg>
+                          Leave Group
+                        </button>
                       </div>
                     )}
                   </div>

@@ -1010,7 +1010,7 @@ export default function ChatPage() {
   return (
     <main className={`${darkMode ? 'dark' : ''}`}>
       <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
-        <div className="mx-auto flex h-full max-w-[1800px]">
+        <div className="flex h-full">
           {/* Left nav sidebar — always visible on desktop */}
           <Sidebar
             collapsed={false}

@@ -1867,22 +1867,6 @@ export default function ChatPage() {
                     )}
                   </div>
 
-                {participants.some((p) => p.userId !== profile.userId) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const others = participants.filter((p) => p.userId !== profile.userId);
-                      if (others.length > 1) { setShowMeetingPrompt(true); return; }
-                      if (others[0]) handleVideoCall(others[0].userId, others[0].username);
-                    }}
-                    className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 p-3.5 text-white shadow-lg shadow-blue-500/30 md:hidden active:scale-95"
-                    title="Start video call"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                    </svg>
-                  </button>
-                )}
             </div>{/* end chat area */}
           </div>{/* end right area */}
         </div>{/* end max-w-[1800px] */}

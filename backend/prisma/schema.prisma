@@ -144,3 +144,17 @@ model UserContact {
   @@unique([userId, contactId])
   @@index([userId])
 }
+
+model CallHistory {
+  id             String   @id @default(cuid())
+  userId         Int
+  peerUserId     Int
+  peerUsername   String
+  callType       String   @default("voice")
+  callStatus     String   @default("completed")
+  duration       Int      @default(0)
+  roomKey        String
+  createdAt      DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

@@ -419,6 +419,21 @@ export default function ChatPage() {
     if (existingPeer) {
       const state = existingPeer.connectionState;
       if (state !== 'closed' && state !== 'failed' && state !== 'disconnected') {
+        if (localStreamRef.current) {
+          const senders = existingPeer.getSenders();
+          const streamTracks = localStreamRef.current.getTracks();
+          streamTracks.forEach(track => {
+            const existingSender = senders.find(s => s.track?.kind === track.kind);
+            if (existingSender && existingSender.track !== track) {
+              existingSender.replaceTrack(track).catch(() => {
+                existingPeer.removeTrack(existingSender);
+                existingPeer.addTrack(track, localStreamRef.current!);
+              });
+            } else if (!existingSender) {
+              existingPeer.addTrack(track, localStreamRef.current!);
+            }
+          });
+        }
         return existingPeer;
       }
       removePeer(targetUserId);
@@ -436,8 +451,11 @@ export default function ChatPage() {
       } else {
         if (!stream.getTracks().includes(event.track)) stream.addTrack(event.track);
       }
-      // Push the live stream into callPeers so VideoGrid re-renders with video
-      setCallPeers(prev => prev.map(p => p.userId === targetUserId ? { ...p, stream } : p));
+      setCallPeers(prev => {
+        const exists = prev.some(p => p.userId === targetUserId);
+        if (!exists) return [...prev, { userId: targetUserId, username: targetUsername ?? `User ${targetUserId}`, stream }];
+        return prev.map(p => p.userId === targetUserId ? { ...p, stream } : p);
+      });
     };
     peer.onicecandidate = (event) => {
       if (!event.candidate) return;
@@ -460,7 +478,6 @@ export default function ChatPage() {
     };
     if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => peer.addTrack(t, localStreamRef.current!));
     peersRef.current.set(targetUserId, peer);
-    // Ensure this peer appears in callPeers (stream arrives later via ontrack)
     if (targetUsername) {
       setCallPeers(prev => prev.some(p => p.userId === targetUserId) ? prev : [...prev, { userId: targetUserId, username: targetUsername, stream: null }]);
     }
@@ -612,6 +629,7 @@ export default function ChatPage() {
       setCallStatus('Connecting...');
       try {
         await ensureLocalStream(activeCallTypeRef.current);
+        await new Promise(resolve => setTimeout(resolve, 50));
         const peer = ensurePeer(userId, username);
         const isVideo = activeCallTypeRef.current === 'video';
         const offer = await peer.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideo });
@@ -638,6 +656,7 @@ export default function ChatPage() {
       setCallStatus('Connecting...');
       try {
         await ensureLocalStream(activeCallTypeRef.current);
+        await new Promise(resolve => setTimeout(resolve, 50));
         const peer = ensurePeer(fromUserId, fromUsername);
         await peer.setRemoteDescription(new RTCSessionDescription(sdp));
         const pending = pendingCandidatesRef.current.get(fromUserId) ?? [];

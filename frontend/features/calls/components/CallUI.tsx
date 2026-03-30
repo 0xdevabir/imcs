@@ -171,20 +171,11 @@ function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, i
         </div>
 
         {/* Remote — fills screen on mobile, right column on desktop */}
-        <div className="absolute inset-0 z-0 overflow-hidden bg-slate-900 md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:rounded-2xl md:overflow-hidden md:ring-2 md:ring-white/10">
-          {remotePeer.stream
-            ? <video
-                ref={(el) => { if (el && remotePeer.stream && el.srcObject !== remotePeer.stream) { el.srcObject = remotePeer.stream; el.play().catch(() => undefined); } }}
-                autoPlay playsInline
-                className="w-full h-full object-cover"
-              />
-            : <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-2xl font-bold text-white mb-3">{remotePeer.username.charAt(0).toUpperCase()}</div>
-                <p className="text-white/40 text-sm">Connecting…</p>
-              </div>
-          }
-          <div className="absolute bottom-3 left-3 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm text-white text-xs font-medium">{remotePeer.username}</div>
-        </div>
+        <VideoTile
+          stream={remotePeer.stream}
+          label={remotePeer.username}
+          className="absolute inset-0 z-0 rounded-none md:relative md:inset-auto md:z-auto md:flex-1 md:min-h-0 md:rounded-2xl"
+        />
       </div>
     );
   }

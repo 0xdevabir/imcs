@@ -491,6 +491,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.forwardToUser(body?.targetUserId, 'offer', {
       fromUserId: this.getUser(client).userId,
+      fromUsername: this.getUser(client).username,
       sdp: body.sdp,
     });
   }
@@ -506,6 +507,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     this.forwardToUser(body?.targetUserId, 'answer', {
       fromUserId: this.getUser(client).userId,
+      fromUsername: this.getUser(client).username,
       sdp: body.sdp,
     });
   }

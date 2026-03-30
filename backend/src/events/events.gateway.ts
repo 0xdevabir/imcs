@@ -441,6 +441,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const callRoom = this.callRooms.get(roomKey);
     if (!callRoom) return;
 
+    const wasEmptyBefore = callRoom.size === 0;
     callRoom.delete(user.userId);
 
     for (const [participantId] of callRoom) {
@@ -450,7 +451,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       });
     }
 
-    if (callRoom.size === 0) this.callRooms.delete(roomKey);
+    if (callRoom.size === 0) {
+      this.callRooms.delete(roomKey);
+      client.emit('call_ended', { roomKey, reason: 'All participants left' });
+    }
   }
 
   @SubscribeMessage('accept_call')

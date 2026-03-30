@@ -13,6 +13,7 @@ import { ContactsPanel } from '@/features/contacts/components/ContactsPanel';
 import { ProfileView } from '@/features/settings/components/ProfileView';
 import { SettingsView } from '@/features/settings/components/SettingsView';
 import { MeetingsPanel } from '@/features/meetings/components/MeetingsPanel';
+import { CreateGroupModal } from '@/features/chat/components/create-group-modal/CreateGroupModal';
 import {
   AppSection,
   CallHistoryItem,
@@ -58,6 +59,10 @@ const RTC_CONFIG = buildRtcConfig();
 
 function encodeAttachmentMessage(file: UploadedFileResponse): string {
   return `${FILE_MESSAGE_PREFIX}${JSON.stringify({ kind: 'file', ...file })}`;
+}
+
+function dedupeParticipants(arr: GroupParticipant[]): GroupParticipant[] {
+  return arr.filter((p, i, self) => self.findIndex((x) => x.userId === p.userId) === i);
 }
 
 function summarizeMessage(content: string): string {
@@ -115,9 +120,6 @@ export default function ChatPage() {
   const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
 
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
-  const [newGroupKey, setNewGroupKey] = useState('');
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newGroupUsers, setNewGroupUsers] = useState('');
 
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [allUsers, setAllUsers] = useState<SearchedUser[]>([]);
@@ -140,6 +142,7 @@ export default function ChatPage() {
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [participantsPanelOpen, setParticipantsPanelOpen] = useState(false);
   const [callHistory, setCallHistory] = useState<CallHistoryItem[]>([]);
+  const [showMeetingPrompt, setShowMeetingPrompt] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
@@ -193,7 +196,6 @@ export default function ChatPage() {
   }, [typingUsers]);
 
   const activeRoomName = useMemo(() => {
-    // For DM rooms, always show the other participant's name
     if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
       const other = participants.find((p) => Number(p.userId) !== Number(profile.userId));
       if (other) return other.username;
@@ -326,8 +328,13 @@ export default function ChatPage() {
       const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/participants`);
       if (!response.ok) { setParticipants([]); setCanManageMembers(false); return; }
       const payload = (await response.json()) as { participants: GroupParticipant[]; canManageMembers: boolean };
-      setParticipants(payload.participants);
+      const deduped = dedupeParticipants(payload.participants);
+      setParticipants(deduped);
       setCanManageMembers(payload.canManageMembers);
+      if (activeRoomKey.startsWith('dm_')) {
+        const other = deduped.find((p) => p.userId !== profile.userId);
+        if (other) setRooms((prev) => prev.map((r) => r.key === activeRoomKey ? { ...r, name: other.username } : r));
+      }
     };
     loadParticipants().catch(() => undefined);
   }, [profile, activeRoomKey]);
@@ -344,7 +351,9 @@ export default function ChatPage() {
     remoteStreamsRef.current.clear();
     pendingCandidatesRef.current.clear();
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
+    if (displayStreamRef.current) { displayStreamRef.current.getTracks().forEach(t => t.stop()); displayStreamRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    cameraTrackRef.current = null;
     setLocalStream(null);
     setCallPeers([]);
     setActiveCallRoomKey(null);
@@ -355,6 +364,8 @@ export default function ChatPage() {
     setIsMuted(false);
     setIsCameraOff(false);
     setIsScreenSharing(false);
+    setCallStartedAt(null);
+    setCallTicker(0);
   };
 
   const removePeer = (userId: number) => {
@@ -371,17 +382,47 @@ export default function ChatPage() {
   };
 
   const ensureLocalStream = async (type: 'voice' | 'video') => {
-    if (!localStreamRef.current) {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: type === 'video' });
-      localStreamRef.current = stream;
-      cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
-      setLocalStream(stream);
+    const needsVideo = type === 'video';
+    const currentStream = localStreamRef.current;
+    
+    if (currentStream) {
+      const hasVideoTrack = currentStream.getVideoTracks().length > 0;
+      if (needsVideo && hasVideoTrack) {
+        return currentStream;
+      }
+      if (!needsVideo && !hasVideoTrack) {
+        return currentStream;
+      }
+      currentStream.getTracks().forEach(t => t.stop());
+      localStreamRef.current = null;
     }
-    return localStreamRef.current!;
+    
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    const videoConstraints: boolean | MediaTrackConstraints = needsVideo ? (isMobile ? {
+      facingMode: 'user',
+      width: { ideal: 640 },
+      height: { ideal: 480 }
+    } : {
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    }) : false;
+    
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoConstraints });
+    localStreamRef.current = stream;
+    cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
+    setLocalStream(stream);
+    return stream;
   };
 
   const ensurePeer = (targetUserId: number, targetUsername?: string) => {
-    if (peersRef.current.has(targetUserId)) return peersRef.current.get(targetUserId)!;
+    const existingPeer = peersRef.current.get(targetUserId);
+    if (existingPeer) {
+      const state = existingPeer.connectionState;
+      if (state !== 'closed' && state !== 'failed' && state !== 'disconnected') {
+        return existingPeer;
+      }
+      removePeer(targetUserId);
+    }
     const peer = new RTCPeerConnection(RTC_CONFIG);
     const remoteStream = new MediaStream();
     remoteStreamsRef.current.set(targetUserId, remoteStream);
@@ -443,9 +484,17 @@ export default function ChatPage() {
       setStatus(`Connected to ${payload.room.name ?? payload.room.key}`);
       setRooms((prev) => {
         const current = prev.find((room) => room.key === payload.room.key);
+        let roomName = payload.room.name || current?.name || payload.room.key;
+        // For DMs, derive name from the other participant in messages
+        if (payload.room.key.startsWith('dm_')) {
+          const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profile.userId));
+          if (otherParticipant) {
+            roomName = otherParticipant.sender.username;
+          }
+        }
         const next: RoomItem = {
           key: payload.room.key,
-          name: payload.room.name || current?.name || payload.room.key,
+          name: roomName,
           unread: 0,
           lastMessage: payload.messages.length > 0 ? summarizeMessage(payload.messages[payload.messages.length - 1].content) : current?.lastMessage ?? 'No messages yet',
           lastAt: payload.messages.length > 0 ? payload.messages[payload.messages.length - 1].createdAt : current?.lastAt,
@@ -477,17 +526,14 @@ export default function ChatPage() {
       });
       setRooms((prev) => {
         const current = prev.find((room) => room.key === message.roomKey);
-        // For DM rooms with no existing entry (or stale key fallback), derive name from sender
         let name = current?.name;
-        if (!name || name === message.roomKey) {
-          if (message.roomKey.startsWith('dm_')) {
-            // Show the other person: sender if they sent it, otherwise the recipient is us
-            name = message.sender.userId !== profile.userId
-              ? message.sender.username
-              : current?.name ?? message.roomKey;
-          } else {
-            name = current?.name ?? message.roomKey;
-          }
+        // For DM rooms, always use the other participant's name (correct it if needed)
+        if (message.roomKey.startsWith('dm_')) {
+          name = message.sender.userId !== profile.userId
+            ? message.sender.username
+            : current?.name ?? message.roomKey;
+        } else if (!name || name === message.roomKey) {
+          name = current?.name ?? message.roomKey;
         }
         const nextRoom: RoomItem = {
           key: message.roomKey,
@@ -561,6 +607,7 @@ export default function ChatPage() {
 
     // An existing participant creates an offer when a new user joins
     socket.on('user_joined_call', async (payload: { userId: number; username: string; callType: 'voice' | 'video' }) => {
+      if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       const { userId, username } = payload;
       setCallStatus('Connecting...');
       try {
@@ -575,7 +622,10 @@ export default function ChatPage() {
 
     // Who's already in the call when we join
     socket.on('call_participants', (payload: { participants: { userId: number; username: string }[] }) => {
+      if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
+      const myUserId = profile.userId;
       for (const { userId, username } of payload.participants) {
+        if (userId === myUserId) continue;
         setCallPeers(prev => prev.some(p => p.userId === userId) ? prev : [...prev, { userId, username, stream: null }]);
       }
     });
@@ -583,6 +633,7 @@ export default function ChatPage() {
     socket.on('user_left_call', (payload: { userId: number }) => { removePeer(payload.userId); });
 
     socket.on('offer', async (payload: { fromUserId: number; fromUsername?: string; sdp: RTCSessionDescriptionInit }) => {
+      if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       const { fromUserId, fromUsername, sdp } = payload;
       setCallStatus('Connecting...');
       try {
@@ -627,6 +678,7 @@ export default function ChatPage() {
     socket.on('error', (message: string) => { setStatus(message); });
     socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
     socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
+    socket.on('call_ended', (payload: { roomKey: string; reason?: string }) => { cleanupCall(); setCallStatus(payload.reason ?? 'Call ended'); });
     socket.on('group_created', async (payload: GroupSummary) => {
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
       setRooms((prev) => { if (prev.some((r) => r.key === payload.key)) return prev; return [...prev, { key: payload.key, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }]; });
@@ -636,10 +688,15 @@ export default function ChatPage() {
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
         setGroups(mineData);
-        setRooms((prev) => mineData.map((g) => {
-          const existing = prev.find((r) => r.key === g.key);
-          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-        }));
+        setRooms((prev) => {
+          const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
+          const groupKeys = new Set(mineData.map((g) => g.key));
+          const updatedGroups = mineData.map((g) => {
+            const existing = prev.find((r) => r.key === g.key);
+            return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          });
+          return [...dmRooms, ...updatedGroups].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
+        });
       }
     });
     socket.on('group_member_removed', async () => {
@@ -655,11 +712,16 @@ export default function ChatPage() {
             return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
           });
           const dmRooms = filtered.filter(r => !mineData.some(g => g.key === r.key));
-          return [...updatedGroups, ...dmRooms];
+          return [...updatedGroups, ...dmRooms].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
         });
       }
     });
-    return () => { cleanupCall(); socket.disconnect(); socketRef.current = null; };
+    return () => {
+      cleanupCall();
+      socket.removeAllListeners();
+      socket.disconnect();
+      socketRef.current = null;
+    };
   }, [profile]);
 
   const openRoom = (roomKey: string) => { setActiveSection('chats'); setMobileSection('chats'); setMobileChatOpen(true); setActiveRoomKey(roomKey); setShowGroupInfo(false); setRooms((prev) => prev.map((room) => (room.key === roomKey ? { ...room, unread: 0 } : room))); socketRef.current?.emit('join_room', { roomKey }); };
@@ -672,19 +734,27 @@ export default function ChatPage() {
     });
   };
 
-  const createGroup = async () => {
-    const key = newGroupKey.trim().toLowerCase();
+  const createGroup = async (data: { key: string; name: string; participantUsernames: string[] }) => {
+    const key = data.key.trim().toLowerCase();
     if (!key) { setStatus('Group key is required'); return; }
-    const participantUsernames = newGroupUsers.split(',').map((item) => item.trim()).filter(Boolean);
+    const participantUsernames = data.participantUsernames.filter((u, i, arr) => arr.indexOf(u) === i);
     const response = await authFetch(`${API_URL}/groups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, name: newGroupName.trim() || undefined, participantUsernames }),
+      body: JSON.stringify({ key, name: data.name || undefined, participantUsernames }),
     });
     if (!response.ok) { setStatus('Could not create group'); return; }
-    setIsCreateGroupModalOpen(false); setNewGroupKey(''); setNewGroupName(''); setNewGroupUsers(''); setStatus(`Group ${key} created`);
+    setIsCreateGroupModalOpen(false); setStatus(`Group ${key} created`);
     const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-    if (mineResponse.ok) { const mineData = (await mineResponse.json()) as GroupSummary[]; setGroups(mineData); setRooms(mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' }))); }
+    if (mineResponse.ok) { 
+      const mineData = (await mineResponse.json()) as GroupSummary[]; 
+      setGroups(mineData); 
+      setRooms((prev) => {
+        const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
+        const updatedGroups = mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' }));
+        return [...dmRooms, ...updatedGroups];
+      }); 
+    }
     openRoom(key);
   };
 
@@ -698,7 +768,7 @@ export default function ChatPage() {
     });
     if (!response.ok) { setStatus('Could not add member'); return; }
     const payload = (await response.json()) as { participants: GroupParticipant[]; canManageMembers: boolean };
-    setParticipants(payload.participants); setCanManageMembers(payload.canManageMembers); setMemberUsernameInput('');
+    setParticipants(dedupeParticipants(payload.participants)); setCanManageMembers(payload.canManageMembers); setMemberUsernameInput('');
   };
 
   const removeMember = async (username: string) => {
@@ -707,7 +777,7 @@ export default function ChatPage() {
     });
     if (!response.ok) { setStatus('Could not remove member'); return; }
     const payload = (await response.json()) as { participants: GroupParticipant[]; canManageMembers: boolean };
-    setParticipants(payload.participants); setCanManageMembers(payload.canManageMembers);
+    setParticipants(dedupeParticipants(payload.participants)); setCanManageMembers(payload.canManageMembers);
   };
 
   const leaveGroup = async () => {
@@ -833,8 +903,11 @@ export default function ChatPage() {
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
         setGroups(mineData);
-        setRooms((prev) =>
-          mineData.map((g) => {
+        setRooms((prev) => {
+          const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
+          const groupKeys = new Set(mineData.map((g) => g.key));
+          const nonDmRooms = prev.filter((r) => !r.key.startsWith('dm_') && groupKeys.has(r.key));
+          const updatedGroups = mineData.map((g) => {
             const existingRoom = prev.find((r) => r.key === g.key);
             return {
               key: g.key,
@@ -843,8 +916,9 @@ export default function ChatPage() {
               lastMessage: existingRoom?.lastMessage ?? 'No messages yet',
               lastAt: existingRoom?.lastAt,
             };
-          }),
-        );
+          });
+          return [...dmRooms, ...updatedGroups];
+        });
       }
     }
 
@@ -853,10 +927,9 @@ export default function ChatPage() {
 
   const handleVoiceCall = async (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setActiveSection('calls');
-      setMobileSection('calls');
-      setMobileChatOpen(false);
+    if (isCallActive || incomingCall) {
+      setCallStatus('Already in a call');
+      return;
     }
     let roomKey = activeRoomRef.current;
     if (activeSection === 'contacts') {
@@ -872,25 +945,34 @@ export default function ChatPage() {
     }
     bumpRoomToTop(roomKey);
 
-    cleanupCall(); setActiveCallType('voice'); activeCallTypeRef.current = 'voice';
+    cleanupCall();
+    setActiveCallType('voice');
+    activeCallTypeRef.current = 'voice';
+    
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     ensureLocalStream('voice').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
       setIsCallActive(true);
       setCallStatus(`Calling...`);
       socketRef.current!.emit('group_call_start', { roomKey, callType: 'voice' });
       socketRef.current!.emit('join_group_call', { roomKey, callType: 'voice' });
+      if (ringTimeoutRef.current) clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = setTimeout(() => {
-        if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
+        if (ringTimeoutRef.current) {
+          ringTimeoutRef.current = null;
+          endCall();
+          setCallStatus('No answer');
+        }
       }, 30000);
-    }).catch(() => setCallStatus('Could not access media devices'));
+    }).catch(() => { cleanupCall(); setCallStatus('Could not access media devices'); });
   };
 
   const handleVideoCall = async (userId: number, username: string) => {
     if (!socketRef.current) { setCallStatus('Socket not connected'); return; }
-    if (typeof window !== 'undefined' && window.innerWidth < 768) {
-      setActiveSection('calls');
-      setMobileSection('calls');
-      setMobileChatOpen(false);
+    if (isCallActive || incomingCall) {
+      setCallStatus('Already in a call');
+      return;
     }
     let roomKey = activeRoomRef.current;
     if (activeSection === 'contacts') {
@@ -906,49 +988,73 @@ export default function ChatPage() {
     }
     bumpRoomToTop(roomKey);
 
-    cleanupCall(); setActiveCallType('video'); activeCallTypeRef.current = 'video';
+    cleanupCall();
+    setActiveCallType('video');
+    activeCallTypeRef.current = 'video';
+    
+    await new Promise(resolve => setTimeout(resolve, 50));
+    
     ensureLocalStream('video').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
       setIsCallActive(true);
       setCallStatus(`Calling...`);
       socketRef.current!.emit('group_call_start', { roomKey, callType: 'video' });
       socketRef.current!.emit('join_group_call', { roomKey, callType: 'video' });
+      if (ringTimeoutRef.current) clearTimeout(ringTimeoutRef.current);
       ringTimeoutRef.current = setTimeout(() => {
-        if (ringTimeoutRef.current) { cleanupCall(); setCallStatus('No answer'); }
+        if (ringTimeoutRef.current) {
+          ringTimeoutRef.current = null;
+          endCall();
+          setCallStatus('No answer');
+        }
       }, 30000);
-    }).catch(() => setCallStatus('Could not access media devices'));
+    }).catch(() => { cleanupCall(); setCallStatus('Could not access media devices'); });
   };
 
   const handleContactClick = async (userId: number, username: string) => {
-    const roomKey = `dm_${Math.min(userId, profile?.userId ?? 0)}_${Math.max(userId, profile?.userId ?? 0)}`;
+    if (!profile) return;
+    const roomKey = `dm_${Math.min(userId, profile.userId)}_${Math.max(userId, profile.userId)}`;
     
-    // Ensure room exists in local state first
-    setRooms(prev => {
-      if (prev.some(r => r.key === roomKey)) return prev;
-      return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
-    });
-    
-    // If room doesn't exist on server, create it
-    if (!rooms.some(r => r.key === roomKey)) {
-      await authFetch(`${API_URL}/groups`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
-      });
-    }
-    
-    // Open the room
+    // Open the room immediately (optimistic update)
     activeRoomRef.current = roomKey;
     setActiveSection('chats');
     setMobileSection('chats');
     setMobileChatOpen(true);
     setActiveRoomKey(roomKey);
     setMessages([]); // Clear messages while loading
+    
+    // Ensure room exists in local state (use callback to avoid stale state)
+    setRooms(prev => {
+      if (prev.some(r => r.key === roomKey)) return prev;
+      return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
+    });
+    
+    // If room doesn't exist on server, create it (do this after state update)
+    try {
+      const response = await authFetch(`${API_URL}/groups/${roomKey}`);
+      if (response.status === 404) {
+        await authFetch(`${API_URL}/groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
+        });
+      }
+    } catch (err) {
+      console.error('Failed to ensure DM room exists', err);
+    }
+    
     socketRef.current?.emit('join_room', { roomKey });
   };
 
   const acceptCall = async () => {
     if (!incomingCall || !socketRef.current) return;
+    if (isCallActive) {
+      setCallStatus('Already in a call');
+      socketRef.current.emit('reject_call', { targetUserId: incomingCall.fromUserId, reason: 'Busy' });
+      setIncomingCall(null);
+      return;
+    }
+    cleanupCall();
     try {
       await ensureLocalStream(incomingCall.callType);
       setActiveCallType(incomingCall.callType);
@@ -960,7 +1066,7 @@ export default function ChatPage() {
       bumpRoomToTop(roomKey);
       setIncomingCall(null);
       socketRef.current.emit('join_group_call', { roomKey, callType: incomingCall.callType });
-    } catch { setCallStatus('Could not access media'); }
+    } catch { cleanupCall(); setCallStatus('Could not access media'); }
   };
 
   const rejectCall = () => {
@@ -1386,24 +1492,24 @@ export default function ChatPage() {
                           const isGroup = others.length > 1;
                           const callTarget = others[0];
                           return (
-                            <div className="hidden lg:flex items-center gap-1">
+                            <div className="flex items-center gap-0.5 md:gap-1">
                               <button
                                 type="button"
                                 onClick={() => handleVoiceCall(callTarget.userId, callTarget.username)}
-                                className={`p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
                                 title={isGroup ? 'Start group voice call' : `Voice call ${callTarget.username}`}
                               >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
                                 </svg>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleVideoCall(callTarget.userId, callTarget.username)}
-                                className={`p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
-                                title={isGroup ? 'Start group video call' : `Video call ${callTarget.username}`}
+                                onClick={() => isGroup ? setShowMeetingPrompt(true) : handleVideoCall(callTarget.userId, callTarget.username)}
+                                className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                title={isGroup ? 'Join meeting' : `Video call ${callTarget.username}`}
                               >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                                 </svg>
                               </button>
@@ -1613,8 +1719,9 @@ export default function ChatPage() {
                   <button
                     type="button"
                     onClick={() => {
-                      const other = participants.find((p) => p.userId !== profile.userId);
-                      if (other) handleVideoCall(other.userId, other.username);
+                      const others = participants.filter((p) => p.userId !== profile.userId);
+                      if (others.length > 1) { setShowMeetingPrompt(true); return; }
+                      if (others[0]) handleVideoCall(others[0].userId, others[0].username);
                     }}
                     className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 p-3.5 text-white shadow-lg shadow-blue-500/30 md:hidden active:scale-95"
                     title="Start video call"
@@ -1824,49 +1931,59 @@ export default function ChatPage() {
         onEndCall={endCall}
       />
 
-      {isCreateGroupModalOpen && (
+      {showMeetingPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsCreateGroupModalOpen(false)} />
-          <div className={`relative w-full max-w-md rounded-2xl border shadow-2xl scale-in ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-            {/* Modal header */}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setShowMeetingPrompt(false)} />
+          <div className={`relative w-full max-w-sm rounded-2xl border shadow-2xl scale-in ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
             <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-600/15 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                <div className="w-9 h-9 rounded-xl bg-emerald-600/15 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
-                  <h2 className="text-sm font-bold">Create Group</h2>
-                  <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Set up a new group conversation</p>
+                  <h2 className="text-sm font-bold">Start or join a meeting</h2>
+                  <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Group video calls use Meetings</p>
                 </div>
               </div>
-              <button type="button" onClick={() => setIsCreateGroupModalOpen(false)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
+              <button type="button" onClick={() => setShowMeetingPrompt(false)} className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            {/* Modal body */}
             <div className="px-5 py-5 space-y-3">
-              <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Group Key *</label>
-                <input value={newGroupKey} onChange={(e) => setNewGroupKey(e.target.value)} placeholder="e.g. team-alpha" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
+              <p className={`text-sm leading-relaxed ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                Use the <span className="font-semibold">Meetings tab</span> to schedule or join a video meeting for this group.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setShowMeetingPrompt(false); setActiveSection('meetings'); setMobileSection('meetings'); setMobileChatOpen(false); }}
+                  className="flex-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3.5 py-2.5 text-sm font-semibold text-white shadow-md shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                >
+                  Go to Meetings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowMeetingPrompt(false)}
+                  className={`flex-1 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all active:scale-[0.98] ${darkMode ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+                >
+                  Cancel
+                </button>
               </div>
-              <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Display Name</label>
-                <input value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)} placeholder="e.g. Team Alpha" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
-              </div>
-              <div>
-                <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>Participants</label>
-                <input value={newGroupUsers} onChange={(e) => setNewGroupUsers(e.target.value)} placeholder="user1, user2, user3" className={`w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${darkMode ? 'border-slate-700/80 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10' : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/10'}`} />
-              </div>
-              <button type="button" onClick={createGroup} className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 px-3.5 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition-all active:scale-[0.98]">
-                Create Group
-              </button>
             </div>
           </div>
         </div>
+      )}
+
+      {isCreateGroupModalOpen && (
+        <CreateGroupModal
+          darkMode={darkMode}
+          onClose={() => setIsCreateGroupModalOpen(false)}
+          onCreate={createGroup}
+        />
       )}
     </main>
   );

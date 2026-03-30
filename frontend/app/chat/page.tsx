@@ -786,6 +786,31 @@ export default function ChatPage() {
     };
   }, [profile]);
 
+  // Load call history from database
+  useEffect(() => {
+    if (!profile) return;
+    const loadCallHistory = async () => {
+      try {
+        const response = await authFetch(`${API_URL}/call-history`);
+        if (response.ok) {
+          const data = await response.json();
+          setCallHistory(data.map((c: { id: string; peerUserId: number; peerUsername: string; callType: string; callStatus: string; duration: number; createdAt: string }) => ({
+            id: c.id,
+            peerUserId: c.peerUserId,
+            peerUsername: c.peerUsername,
+            callType: c.callType as 'voice' | 'video',
+            callStatus: c.callStatus as 'completed' | 'missed' | 'rejected',
+            duration: c.duration,
+            createdAt: c.createdAt,
+          })));
+        }
+      } catch (err) {
+        console.error('Failed to load call history', err);
+      }
+    };
+    loadCallHistory();
+  }, [profile]);
+
   const openRoom = (roomKey: string) => { setActiveSection('chats'); setMobileSection('chats'); setMobileChatOpen(true); setActiveRoomKey(roomKey); setShowGroupInfo(false); setRooms((prev) => prev.map((room) => (room.key === roomKey ? { ...room, unread: 0 } : room))); socketRef.current?.emit('join_room', { roomKey }); };
   const togglePin = (roomKey: string) => { setPinnedRoomKeys((prev) => (prev.includes(roomKey) ? prev.filter((item) => item !== roomKey) : [roomKey, ...prev])); };
   const bumpRoomToTop = (roomKey: string) => {
@@ -1140,14 +1165,14 @@ export default function ChatPage() {
     setIncomingCall(null); setCallStatus('Call rejected');
   };
 
-  const endCall = () => {
+  const endCall = async () => {
     const roomKey = activeCallRoomKeyRef.current;
     if (socketRef.current && roomKey) {
       socketRef.current.emit('leave_group_call', { roomKey });
     }
     if (callStartedAt && callPeers.length > 0) {
       const duration = Math.floor((Date.now() - callStartedAt) / 1000);
-      callPeers.forEach(peer => {
+      for (const peer of callPeers) {
         const newCall: CallHistoryItem = {
           id: `call_${Date.now()}_${peer.userId}`,
           peerUserId: peer.userId,
@@ -1157,8 +1182,25 @@ export default function ChatPage() {
           duration,
           createdAt: new Date().toISOString(),
         };
+        // Save to database
+        try {
+          await authFetch(`${API_URL}/call-history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              peerUserId: peer.userId,
+              peerUsername: peer.username,
+              callType: activeCallType,
+              callStatus: duration > 0 ? 'completed' : 'missed',
+              duration,
+              roomKey: roomKey ?? '',
+            }),
+          });
+        } catch (err) {
+          console.error('Failed to save call history', err);
+        }
         setCallHistory(prev => [newCall, ...prev].slice(0, 50));
-      });
+      }
     }
     cleanupCall();
     setCallStartedAt(null);
@@ -1825,22 +1867,6 @@ export default function ChatPage() {
                     )}
                   </div>
 
-                {participants.some((p) => p.userId !== profile.userId) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const others = participants.filter((p) => p.userId !== profile.userId);
-                      if (others.length > 1) { setShowMeetingPrompt(true); return; }
-                      if (others[0]) handleVideoCall(others[0].userId, others[0].username);
-                    }}
-                    className="fixed bottom-20 right-4 z-20 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500 p-3.5 text-white shadow-lg shadow-blue-500/30 md:hidden active:scale-95"
-                    title="Start video call"
-                  >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                    </svg>
-                  </button>
-                )}
             </div>{/* end chat area */}
           </div>{/* end right area */}
         </div>{/* end max-w-[1800px] */}

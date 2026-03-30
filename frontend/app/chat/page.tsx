@@ -422,14 +422,19 @@ export default function ChatPage() {
         if (localStreamRef.current) {
           const senders = existingPeer.getSenders();
           const streamTracks = localStreamRef.current.getTracks();
+          const isVideo = activeCallTypeRef.current === 'video';
           streamTracks.forEach(track => {
+            // Only add relevant tracks based on call type
+            if (!isVideo && track.kind !== 'audio') return;
             const existingSender = senders.find(s => s.track?.kind === track.kind);
             if (existingSender && existingSender.track !== track) {
               existingSender.replaceTrack(track).catch(() => {
                 existingPeer.removeTrack(existingSender);
-                existingPeer.addTrack(track, localStreamRef.current!);
+                if (isVideo || track.kind === 'audio') {
+                  existingPeer.addTrack(track, localStreamRef.current!);
+                }
               });
-            } else if (!existingSender) {
+            } else if (!existingSender && (isVideo || track.kind === 'audio')) {
               existingPeer.addTrack(track, localStreamRef.current!);
             }
           });
@@ -476,7 +481,15 @@ export default function ChatPage() {
     peer.oniceconnectionstatechange = () => {
       if (peer.iceConnectionState === 'failed') { try { peer.restartIce(); } catch { /* no-op */ } }
     };
-    if (localStreamRef.current) localStreamRef.current.getTracks().forEach(t => peer.addTrack(t, localStreamRef.current!));
+    // Only add audio track for voice calls, all tracks for video calls
+    if (localStreamRef.current) {
+      const isVideo = activeCallTypeRef.current === 'video';
+      localStreamRef.current.getTracks().forEach(t => {
+        if (isVideo || t.kind === 'audio') {
+          peer.addTrack(t, localStreamRef.current!);
+        }
+      });
+    }
     peersRef.current.set(targetUserId, peer);
     if (targetUsername) {
       setCallPeers(prev => prev.some(p => p.userId === targetUserId) ? prev : [...prev, { userId: targetUserId, username: targetUsername, stream: null }]);

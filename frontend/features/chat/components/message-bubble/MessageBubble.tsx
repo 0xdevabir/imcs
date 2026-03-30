@@ -69,8 +69,8 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
       (props.message.reactions ?? []).reduce<Record<string, { count: number; users: string[] }>>(
         (acc, item) => {
           if (!acc[item.emoji]) acc[item.emoji] = { count: 0, users: [] };
-          acc[item.emoji].count += 1;
           if (!acc[item.emoji].users.includes(item.username)) acc[item.emoji].users.push(item.username);
+          acc[item.emoji].count = acc[item.emoji].users.length;
           return acc;
         },
         {},

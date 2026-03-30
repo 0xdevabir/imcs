@@ -1535,27 +1535,17 @@ export default function ChatPage() {
                             </div>
                           );
                         })()}
-                        {profile.role === 'admin' && (
-                          <Link href="/admin" className={`p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`} title="Admin">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                          </Link>
-                        )}
-                        {/* Group info / settings button - only show for groups, not DMs */}
-                        {!activeRoomKey.startsWith('dm_') && (
-                          <button
-                            type="button"
-                            onClick={() => setShowGroupInfo((v) => !v)}
-                            className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
-                            title="Group info"
-                          >
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                          </button>
-                        )}
+                        {/* Info button - show for all chats */}
+                        <button
+                          type="button"
+                          onClick={() => setShowGroupInfo((v) => !v)}
+                          className={`p-2 rounded-full transition-colors ${showGroupInfo ? (darkMode ? 'bg-[#2a3942] text-[#00a884]' : 'bg-slate-100 text-[#00a884]') : (darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100')}`}
+                          title={activeRoomKey.startsWith('dm_') ? 'Chat info' : 'Group info'}
+                        >
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </button>
                       </>
                     }
                     composer={
@@ -1642,8 +1632,13 @@ export default function ChatPage() {
                 </div>
 
                 {/* Group info / settings slide-in panel - only show for groups, not DMs */}
-                {showGroupInfo && !activeRoomKey.startsWith('dm_') && (
-                  <div className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden ${darkMode ? 'border-white/5 bg-[#111b21]' : 'border-slate-200 bg-white'}`}>
+                <div
+                  className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden absolute right-0 top-0 bottom-0 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                    showGroupInfo
+                      ? 'translate-x-0 opacity-100'
+                      : 'translate-x-full opacity-0 pointer-events-none'
+                  } ${darkMode ? 'border-white/5 bg-[#111b21]' : 'border-slate-200 bg-white'}`}
+                >
                     {/* Panel header */}
                     <div className={`flex items-center gap-3 px-4 py-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
                       <button
@@ -1655,84 +1650,134 @@ export default function ChatPage() {
                           <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                      <h3 className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Group Info</h3>
+                      <h3 className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>
+                        {activeRoomKey.startsWith('dm_') ? 'Chat Info' : 'Group Info'}
+                      </h3>
                     </div>
 
-                    {/* Group avatar + name */}
-                    <div className={`flex flex-col items-center py-6 px-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
-                      <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-2xl font-bold text-white mb-3`}>
-                        {activeRoomName.charAt(0).toUpperCase()}
-                      </div>
-                      <p className={`text-base font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>{activeRoomName}</p>
-                      <p className={`text-xs mt-0.5 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>{participants.length} member{participants.length !== 1 ? 's' : ''}</p>
-                    </div>
-
-                    {/* Members list */}
-                    <div className="flex-1 overflow-y-auto">
-                      <div className={`px-4 py-3 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
-                        <span className="text-[11px] font-bold uppercase tracking-widest">{participants.length} Member{participants.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      {participants.map((p) => (
-                        <div key={p.userId} className={`flex items-center justify-between px-4 py-2.5 transition-colors ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'}`}>
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br ${['from-blue-500 to-indigo-600','from-violet-500 to-purple-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600','from-amber-500 to-orange-600'][Math.abs(p.username.charCodeAt(0)) % 5]} flex-shrink-0`}>
-                              {p.username.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <p className={`text-sm font-medium truncate ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>{p.username}</p>
-                              <span className={`text-[11px] font-semibold capitalize px-1.5 py-0.5 rounded-md ${roleBadgeClass(p.role)}`}>{p.role}</span>
-                            </div>
+                    {/* DM: User info */}
+                    {activeRoomKey.startsWith('dm_') ? (
+                      <>
+                        {/* User avatar + name */}
+                        <div className={`flex flex-col items-center py-6 px-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
+                          <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-2xl font-bold text-white mb-3`}>
+                            {activeRoomName.charAt(0).toUpperCase()}
                           </div>
-                          {canManageMembers && p.role !== 'owner' && p.username !== profile.username && (
-                            <button type="button" onClick={() => removeMember(p.username)} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
-                              </svg>
-                            </button>
-                          )}
+                          <p className={`text-base font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>{activeRoomName}</p>
+                          <p className={`text-xs mt-0.5 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Direct Message</p>
                         </div>
-                      ))}
-                    </div>
 
-                    {/* Add member */}
-                    {canManageMembers && (
-                      <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
-                        <p className={`text-[11px] font-bold uppercase tracking-widest mb-2 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Add Member</p>
-                        <div className="flex gap-2">
-                          <input
-                            value={memberUsernameInput}
-                            onChange={(e) => setMemberUsernameInput(e.target.value)}
-                            placeholder="Username..."
-                            className={`flex-1 rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${darkMode ? 'border-white/10 bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0] focus:border-[#00a884]/60' : 'border-slate-200 bg-slate-50 placeholder:text-slate-400 focus:border-[#00a884]'}`}
-                          />
-                          <button type="button" onClick={addMember} className="rounded-lg bg-[#00a884] hover:bg-[#02be9a] px-3 py-2 text-sm font-semibold text-white transition-colors">
-                            Add
+                        {/* Delete chat option */}
+                        <div className="flex-1 overflow-y-auto">
+                          <div className={`px-4 py-3 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
+                            <span className="text-[11px] font-bold uppercase tracking-widest">Options</span>
+                          </div>
+                          <div className={`px-4 py-2.5 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
+                            <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Delete this chat from your list. Messages will not be deleted for the other person.</p>
+                          </div>
+                        </div>
+
+                        {/* Delete chat button */}
+                        <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRooms(prev => prev.filter(r => r.key !== activeRoomKey));
+                              setShowGroupInfo(false);
+                              setActiveRoomKey('');
+                              setMessages([]);
+                            }}
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                              darkMode
+                                ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                                : 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                            }`}
+                          >
+                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete Chat
                           </button>
                         </div>
-                      </div>
-                    )}
+                      </>
+                    ) : (
+                      <>
+                        {/* Group avatar + name */}
+                        <div className={`flex flex-col items-center py-6 px-4 border-b ${darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-100 bg-[#f0f2f5]'}`}>
+                          <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-2xl font-bold text-white mb-3`}>
+                            {activeRoomName.charAt(0).toUpperCase()}
+                          </div>
+                          <p className={`text-base font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>{activeRoomName}</p>
+                          <p className={`text-xs mt-0.5 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>{participants.length} member{participants.length !== 1 ? 's' : ''}</p>
+                        </div>
 
-                    {/* Leave group */}
-                    {!activeRoomKey.startsWith('dm_') && activeRoomKey !== 'general' && (
-                      <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
-                        <button
-                          type="button"
-                          onClick={leaveGroup}
-                          className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                            darkMode
-                              ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
-                              : 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                          }`}
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                          </svg>
-                          Leave Group
-                        </button>
-                      </div>
+                        {/* Members list */}
+                        <div className="flex-1 overflow-y-auto">
+                          <div className={`px-4 py-3 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>
+                            <span className="text-[11px] font-bold uppercase tracking-widest">{participants.length} Member{participants.length !== 1 ? 's' : ''}</span>
+                          </div>
+                          {participants.map((p) => (
+                            <div key={p.userId} className={`flex items-center justify-between px-4 py-2.5 transition-colors ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'}`}>
+                              <div className="flex items-center gap-3 min-w-0">
+                                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br ${['from-blue-500 to-indigo-600','from-violet-500 to-purple-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600','from-amber-500 to-orange-600'][Math.abs(p.username.charCodeAt(0)) % 5]} flex-shrink-0`}>
+                                  {p.username.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <p className={`text-sm font-medium truncate ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>{p.username}</p>
+                                  <span className={`text-[11px] font-semibold capitalize px-1.5 py-0.5 rounded-md ${roleBadgeClass(p.role)}`}>{p.role}</span>
+                                </div>
+                              </div>
+                              {canManageMembers && p.role !== 'owner' && p.username !== profile.username && (
+                                <button type="button" onClick={() => removeMember(p.username)} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Add member */}
+                        {canManageMembers && (
+                          <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                            <p className={`text-[11px] font-bold uppercase tracking-widest mb-2 ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Add Member</p>
+                            <div className="flex gap-2">
+                              <input
+                                value={memberUsernameInput}
+                                onChange={(e) => setMemberUsernameInput(e.target.value)}
+                                placeholder="Username..."
+                                className={`flex-1 rounded-lg border px-3 py-2 text-sm outline-none transition-colors ${darkMode ? 'border-white/10 bg-[#2a3942] text-[#e9edef] placeholder:text-[#8696a0] focus:border-[#00a884]/60' : 'border-slate-200 bg-slate-50 placeholder:text-slate-400 focus:border-[#00a884]'}`}
+                              />
+                              <button type="button" onClick={addMember} className="rounded-lg bg-[#00a884] hover:bg-[#02be9a] px-3 py-2 text-sm font-semibold text-white transition-colors">
+                                Add
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Leave group */}
+                        {activeRoomKey !== 'general' && (
+                          <div className={`p-4 border-t ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+                            <button
+                              type="button"
+                              onClick={leaveGroup}
+                              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                                darkMode
+                                  ? 'border-rose-500/30 text-rose-400 hover:bg-rose-500/10'
+                                  : 'border-rose-200 text-rose-600 hover:bg-rose-50'
+                              }`}
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                              </svg>
+                              Leave Group
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
-                )}
 
                 {participants.some((p) => p.userId !== profile.userId) && (
                   <button

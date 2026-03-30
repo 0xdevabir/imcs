@@ -348,15 +348,6 @@ function ChatListItem(props: ItemProps) {
               {props.room.lastMessage || 'No messages yet'}
             </p>
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              {props.isPinned && props.room.unread === 0 && (
-                <svg
-                  className={`w-3.5 h-3.5 ${props.darkMode ? 'text-slate-600' : 'text-slate-300'}`}
-                  fill="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-                </svg>
-              )}
               {props.room.unread > 0 && (
                 <span
                   className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${
@@ -373,25 +364,26 @@ function ChatListItem(props: ItemProps) {
                   props.onTogglePin(props.room.key);
                 }}
                 className={`opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
-                  props.darkMode
-                    ? 'text-slate-500 hover:text-slate-300'
-                    : 'text-slate-400 hover:text-slate-600'
+                  props.isPinned
+                    ? props.darkMode
+                      ? 'text-amber-500 hover:text-amber-400'
+                      : 'text-amber-500 hover:text-amber-600'
+                    : props.darkMode
+                      ? 'text-slate-500 hover:text-slate-300'
+                      : 'text-slate-400 hover:text-slate-600'
                 }`}
                 title={props.isPinned ? 'Unpin' : 'Pin'}
               >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill={props.isPinned ? 'currentColor' : 'none'}
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z"
-                  />
-                </svg>
+                {props.isPinned ? (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2v6" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>

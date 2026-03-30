@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
+import { CallHistoryModule } from './call-history/call-history.module';
 import { CommunicationModule } from './communication/communication.module';
 import { EventsModule } from './events/events.module';
 import { FilesModule } from './files/files.module';
@@ -17,6 +18,7 @@ import { UsersModule } from './users/users.module';
     FilesModule,
     GroupsModule,
     CommunicationModule,
+    CallHistoryModule,
   ],
   controllers: [AppController],
 })

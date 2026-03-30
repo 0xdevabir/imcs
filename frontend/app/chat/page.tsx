@@ -786,6 +786,31 @@ export default function ChatPage() {
     };
   }, [profile]);
 
+  // Load call history from database
+  useEffect(() => {
+    if (!profile) return;
+    const loadCallHistory = async () => {
+      try {
+        const response = await authFetch(`${API_URL}/call-history`);
+        if (response.ok) {
+          const data = await response.json();
+          setCallHistory(data.map((c: { id: string; peerUserId: number; peerUsername: string; callType: string; callStatus: string; duration: number; createdAt: string }) => ({
+            id: c.id,
+            peerUserId: c.peerUserId,
+            peerUsername: c.peerUsername,
+            callType: c.callType as 'voice' | 'video',
+            callStatus: c.callStatus as 'completed' | 'missed' | 'rejected',
+            duration: c.duration,
+            createdAt: c.createdAt,
+          })));
+        }
+      } catch (err) {
+        console.error('Failed to load call history', err);
+      }
+    };
+    loadCallHistory();
+  }, [profile]);
+
   const openRoom = (roomKey: string) => { setActiveSection('chats'); setMobileSection('chats'); setMobileChatOpen(true); setActiveRoomKey(roomKey); setShowGroupInfo(false); setRooms((prev) => prev.map((room) => (room.key === roomKey ? { ...room, unread: 0 } : room))); socketRef.current?.emit('join_room', { roomKey }); };
   const togglePin = (roomKey: string) => { setPinnedRoomKeys((prev) => (prev.includes(roomKey) ? prev.filter((item) => item !== roomKey) : [roomKey, ...prev])); };
   const bumpRoomToTop = (roomKey: string) => {
@@ -1140,14 +1165,14 @@ export default function ChatPage() {
     setIncomingCall(null); setCallStatus('Call rejected');
   };
 
-  const endCall = () => {
+  const endCall = async () => {
     const roomKey = activeCallRoomKeyRef.current;
     if (socketRef.current && roomKey) {
       socketRef.current.emit('leave_group_call', { roomKey });
     }
     if (callStartedAt && callPeers.length > 0) {
       const duration = Math.floor((Date.now() - callStartedAt) / 1000);
-      callPeers.forEach(peer => {
+      for (const peer of callPeers) {
         const newCall: CallHistoryItem = {
           id: `call_${Date.now()}_${peer.userId}`,
           peerUserId: peer.userId,
@@ -1157,8 +1182,25 @@ export default function ChatPage() {
           duration,
           createdAt: new Date().toISOString(),
         };
+        // Save to database
+        try {
+          await authFetch(`${API_URL}/call-history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              peerUserId: peer.userId,
+              peerUsername: peer.username,
+              callType: activeCallType,
+              callStatus: duration > 0 ? 'completed' : 'missed',
+              duration,
+              roomKey: roomKey ?? '',
+            }),
+          });
+        } catch (err) {
+          console.error('Failed to save call history', err);
+        }
         setCallHistory(prev => [newCall, ...prev].slice(0, 50));
-      });
+      }
     }
     cleanupCall();
     setCallStartedAt(null);

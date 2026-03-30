@@ -169,6 +169,8 @@ export default function ChatPage() {
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const processedPeerIdsRef = useRef<Set<number>>(new Set());
+  // Tracks whether the user has explicitly joined/accepted a call (not just received an invite)
+  const isInCallRef = useRef(false);
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -360,6 +362,7 @@ export default function ChatPage() {
     setCallPeers([]);
     setActiveCallRoomKey(null);
     activeCallRoomKeyRef.current = null;
+    isInCallRef.current = false;
     setIsCallActive(false);
     setIncomingCall(null);
     setCallStatus('idle');
@@ -646,6 +649,7 @@ export default function ChatPage() {
 
     // An existing participant creates an offer when a new user joins
     socket.on('user_joined_call', async (payload: { userId: number; username: string; callType: 'voice' | 'video' }) => {
+      if (!isInCallRef.current) return; // Guard: only react if we've explicitly joined a call
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       const { userId, username } = payload;
       if (userId === profile.userId) return;
@@ -681,6 +685,7 @@ export default function ChatPage() {
     });
 
     socket.on('offer', async (payload: { fromUserId: number; fromUsername?: string; sdp: RTCSessionDescriptionInit }) => {
+      if (!isInCallRef.current) return; // Guard: only process offers after explicitly accepting a call
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       if (payload.fromUserId === profile.userId) return;
       const { fromUserId, fromUsername, sdp } = payload;
@@ -730,7 +735,12 @@ export default function ChatPage() {
     socket.on('error', (message: string) => { setStatus(message); });
     socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
     socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
-    socket.on('call_ended', (payload: { roomKey: string; reason?: string }) => { cleanupCall(); setCallStatus(payload.reason ?? 'Call ended'); });
+    socket.on('call_ended', (payload: { roomKey: string; reason?: string }) => {
+      const roomKey = activeCallRoomKeyRef.current;
+      if (roomKey) socket.emit('leave_group_call', { roomKey });
+      cleanupCall();
+      setCallStatus(payload.reason ?? 'Call ended');
+    });
     socket.on('group_created', async (payload: GroupSummary) => {
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
       setRooms((prev) => { if (prev.some((r) => r.key === payload.key)) return prev; return [...prev, { key: payload.key, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }]; });
@@ -1005,6 +1015,7 @@ export default function ChatPage() {
     
     ensureLocalStream('voice').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      isInCallRef.current = true;
       setIsCallActive(true);
       setCallStatus(`Calling...`);
       socketRef.current!.emit('group_call_start', { roomKey, callType: 'voice' });
@@ -1048,6 +1059,7 @@ export default function ChatPage() {
     
     ensureLocalStream('video').then(() => {
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      isInCallRef.current = true;
       setIsCallActive(true);
       setCallStatus(`Calling...`);
       socketRef.current!.emit('group_call_start', { roomKey, callType: 'video' });
@@ -1113,6 +1125,7 @@ export default function ChatPage() {
       activeCallTypeRef.current = incomingCall.callType;
       const roomKey = incomingCall.roomKey;
       setActiveCallRoomKey(roomKey); activeCallRoomKeyRef.current = roomKey;
+      isInCallRef.current = true;
       setIsCallActive(true);
       setCallStatus('Joining call...');
       bumpRoomToTop(roomKey);

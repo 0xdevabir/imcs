@@ -441,19 +441,30 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const callRoom = this.callRooms.get(roomKey);
     if (!callRoom) return;
 
-    const wasEmptyBefore = callRoom.size === 0;
+    const participantsBefore = callRoom.size;
     callRoom.delete(user.userId);
+    const participantsAfter = callRoom.size;
 
-    for (const [participantId] of callRoom) {
-      this.forwardToUser(participantId, 'user_left_call', {
-        userId: user.userId,
-        username: user.username,
-      });
+    if (participantsAfter === 0) {
+      this.callRooms.delete(roomKey);
+      return;
     }
 
-    if (callRoom.size === 0) {
-      this.callRooms.delete(roomKey);
-      client.emit('call_ended', { roomKey, reason: 'All participants left' });
+    // For 1-to-1 calls (only 1 remaining), emit call_ended
+    if (participantsAfter === 1) {
+      const remainingUserId = [...callRoom.keys()][0];
+      this.forwardToUser(remainingUserId, 'call_ended', {
+        roomKey,
+        reason: 'Call ended by other user',
+      });
+    } else {
+      // For group calls (more than 1 remaining), just notify that someone left
+      for (const [participantId] of callRoom) {
+        this.forwardToUser(participantId, 'user_left_call', {
+          userId: user.userId,
+          username: user.username,
+        });
+      }
     }
   }
 

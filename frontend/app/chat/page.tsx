@@ -168,6 +168,7 @@ export default function ChatPage() {
   const activeCallRoomKeyRef = useRef<string | null>(null);
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
+  const processedPeerIdsRef = useRef<Set<number>>(new Set());
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -350,6 +351,7 @@ export default function ChatPage() {
     Array.from(remoteStreamsRef.current.values()).forEach(stream => stream.getTracks().forEach((t: MediaStreamTrack) => t.stop()));
     remoteStreamsRef.current.clear();
     pendingCandidatesRef.current.clear();
+    processedPeerIdsRef.current.clear();
     if (localStreamRef.current) { localStreamRef.current.getTracks().forEach(t => t.stop()); localStreamRef.current = null; }
     if (displayStreamRef.current) { displayStreamRef.current.getTracks().forEach(t => t.stop()); displayStreamRef.current = null; }
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -378,6 +380,7 @@ export default function ChatPage() {
     const stream = remoteStreamsRef.current.get(userId);
     if (stream) { stream.getTracks().forEach(t => t.stop()); remoteStreamsRef.current.delete(userId); }
     pendingCandidatesRef.current.delete(userId);
+    processedPeerIdsRef.current.delete(userId);
     setCallPeers(prev => prev.filter(p => p.userId !== userId));
   };
 
@@ -458,7 +461,10 @@ export default function ChatPage() {
       }
       setCallPeers(prev => {
         const exists = prev.some(p => p.userId === targetUserId);
-        if (!exists) return [...prev, { userId: targetUserId, username: targetUsername ?? `User ${targetUserId}`, stream }];
+        if (!exists) {
+          processedPeerIdsRef.current.add(targetUserId);
+          return [...prev, { userId: targetUserId, username: targetUsername ?? `User ${targetUserId}`, stream }];
+        }
         return prev.map(p => p.userId === targetUserId ? { ...p, stream } : p);
       });
     };
@@ -491,7 +497,8 @@ export default function ChatPage() {
       });
     }
     peersRef.current.set(targetUserId, peer);
-    if (targetUsername) {
+    if (targetUsername && !processedPeerIdsRef.current.has(targetUserId)) {
+      processedPeerIdsRef.current.add(targetUserId);
       setCallPeers(prev => prev.some(p => p.userId === targetUserId) ? prev : [...prev, { userId: targetUserId, username: targetUsername, stream: null }]);
     }
     return peer;
@@ -621,6 +628,8 @@ export default function ChatPage() {
     // Legacy 1-to-1 accept_call (kept for backward compat)
     socket.on('accept_call', async (payload: { fromUserId: number; fromUsername?: string }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
+      if (payload.fromUserId === profile.userId) return;
+      if (processedPeerIdsRef.current.has(payload.fromUserId)) return;
       const username = payload.fromUsername ?? `User ${payload.fromUserId}`;
       setCallStatus('Negotiating...');
       try {
@@ -639,6 +648,9 @@ export default function ChatPage() {
     socket.on('user_joined_call', async (payload: { userId: number; username: string; callType: 'voice' | 'video' }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       const { userId, username } = payload;
+      if (userId === profile.userId) return;
+      if (processedPeerIdsRef.current.has(userId)) return;
+      processedPeerIdsRef.current.add(userId);
       setCallStatus('Connecting...');
       try {
         await ensureLocalStream(activeCallTypeRef.current);
@@ -657,14 +669,20 @@ export default function ChatPage() {
       const myUserId = profile.userId;
       for (const { userId, username } of payload.participants) {
         if (userId === myUserId) continue;
+        if (processedPeerIdsRef.current.has(userId)) continue;
+        processedPeerIdsRef.current.add(userId);
         setCallPeers(prev => prev.some(p => p.userId === userId) ? prev : [...prev, { userId, username, stream: null }]);
       }
     });
 
-    socket.on('user_left_call', (payload: { userId: number }) => { removePeer(payload.userId); });
+    socket.on('user_left_call', (payload: { userId: number }) => { 
+      if (payload.userId === profile.userId) return;
+      removePeer(payload.userId); 
+    });
 
     socket.on('offer', async (payload: { fromUserId: number; fromUsername?: string; sdp: RTCSessionDescriptionInit }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
+      if (payload.fromUserId === profile.userId) return;
       const { fromUserId, fromUsername, sdp } = payload;
       setCallStatus('Connecting...');
       try {
@@ -684,6 +702,7 @@ export default function ChatPage() {
     });
 
     socket.on('answer', async (payload: { fromUserId: number; sdp: RTCSessionDescriptionInit }) => {
+      if (payload.fromUserId === profile.userId) return;
       const { fromUserId, sdp } = payload;
       const peer = peersRef.current.get(fromUserId);
       if (!peer) return;
@@ -698,6 +717,7 @@ export default function ChatPage() {
     });
 
     socket.on('ice_candidate', async (payload: { fromUserId: number; candidate: RTCIceCandidateInit }) => {
+      if (payload.fromUserId === profile.userId) return;
       const { fromUserId, candidate } = payload;
       const peer = peersRef.current.get(fromUserId);
       if (peer?.remoteDescription) {

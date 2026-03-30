@@ -86,12 +86,40 @@ interface VideoGridProps {
 }
 
 function VideoGrid({ localStream, localVideoRef, callPeers, callType, isMuted, isCameraOff, isScreenSharing }: VideoGridProps) {
+  const audioRefs = useRef<Map<number, HTMLAudioElement>>(new Map());
+
   const bindLocalVideo = (node: HTMLVideoElement | null) => {
     localVideoRef.current = node;
     if (!node || !localStream) return;
     if (node.srcObject !== localStream) node.srcObject = localStream;
     node.play().catch(() => undefined);
   };
+
+  // Manage audio elements for remote peers
+  useEffect(() => {
+    callPeers.forEach(peer => {
+      if (peer.stream) {
+        let audio = audioRefs.current.get(peer.userId);
+        if (!audio) {
+          audio = document.createElement('audio');
+          audioRefs.current.set(peer.userId, audio);
+        }
+        if (audio.srcObject !== peer.stream) {
+          audio.srcObject = peer.stream;
+        }
+        audio.play().catch(() => undefined);
+      }
+    });
+
+    // Clean up removed peers
+    audioRefs.current.forEach((audio, userId) => {
+      if (!callPeers.some(p => p.userId === userId)) {
+        audio.pause();
+        audio.srcObject = null;
+        audioRefs.current.delete(userId);
+      }
+    });
+  }, [callPeers]);
 
   // Keep the local video ref in sync (used by page.tsx toggleScreenShare)
   useEffect(() => {

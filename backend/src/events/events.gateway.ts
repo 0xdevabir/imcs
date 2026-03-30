@@ -407,10 +407,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     const callRoom = this.callRooms.get(roomKey)!;
 
-    const existingParticipants = [...callRoom.entries()].map(([uid, uname]) => ({
-      userId: uid,
-      username: uname,
-    }));
+    const existingParticipants = [...callRoom.entries()]
+      .filter(([uid]) => uid !== user.userId)
+      .map(([uid, uname]) => ({
+        userId: uid,
+        username: uname,
+      }));
 
     const callType = body?.callType === 'voice' ? 'voice' : 'video';
 

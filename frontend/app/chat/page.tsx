@@ -833,14 +833,13 @@ export default function ChatPage() {
     if (!response.ok) { setStatus('Could not create group'); return; }
     setIsCreateGroupModalOpen(false); setStatus(`Group ${key} created`);
     const mineResponse = await authFetch(`${API_URL}/groups/mine`);
-    if (mineResponse.ok) { 
-      const mineData = (await mineResponse.json()) as GroupSummary[]; 
-      setGroups(mineData); 
-      setRooms((prev) => {
-        const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-        const updatedGroups = mineData.map((g) => ({ key: g.key, name: g.name || g.key, unread: 0, lastMessage: 'No messages yet' }));
-        return [...dmRooms, ...updatedGroups];
-      }); 
+    if (mineResponse.ok) {
+      const mineData = (await mineResponse.json()) as GroupSummary[];
+      setGroups(mineData);
+      setRooms((prev) => mineData.map((g) => {
+        const existing = prev.find((r) => r.key === g.key);
+        return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+      }));
     }
     openRoom(key);
   };
@@ -990,22 +989,10 @@ export default function ChatPage() {
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
         setGroups(mineData);
-        setRooms((prev) => {
-          const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const groupKeys = new Set(mineData.map((g) => g.key));
-          const nonDmRooms = prev.filter((r) => !r.key.startsWith('dm_') && groupKeys.has(r.key));
-          const updatedGroups = mineData.map((g) => {
-            const existingRoom = prev.find((r) => r.key === g.key);
-            return {
-              key: g.key,
-              name: g.name || g.key,
-              unread: existingRoom?.unread ?? 0,
-              lastMessage: existingRoom?.lastMessage ?? 'No messages yet',
-              lastAt: existingRoom?.lastAt,
-            };
-          });
-          return [...dmRooms, ...updatedGroups];
-        });
+        setRooms((prev) => mineData.map((g) => {
+          const existing = prev.find((r) => r.key === g.key);
+          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+        }));
       }
     }
 
@@ -1416,7 +1403,6 @@ export default function ChatPage() {
                     pinnedRoomKeys={pinnedRoomKeys}
                     onTogglePin={togglePin}
                     onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
-                    onOpenNavMenu={() => setIsNavModalOpen(true)}
                     darkMode={darkMode}
                   />
                 </div>
@@ -1567,7 +1553,6 @@ export default function ChatPage() {
                   pinnedRoomKeys={pinnedRoomKeys}
                   onTogglePin={togglePin}
                   onOpenCreateGroup={() => setIsCreateGroupModalOpen(true)}
-                  onOpenNavMenu={() => setIsNavModalOpen(true)}
                   darkMode={darkMode}
                 />
               </div>
@@ -2114,9 +2099,11 @@ export default function ChatPage() {
         </div>
       )}
 
-      {isCreateGroupModalOpen && (
+      {isCreateGroupModalOpen && profile && (
         <CreateGroupModal
           darkMode={darkMode}
+          apiUrl={API_URL}
+          currentUserId={profile.userId}
           onClose={() => setIsCreateGroupModalOpen(false)}
           onCreate={createGroup}
         />

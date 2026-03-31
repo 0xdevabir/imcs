@@ -55,6 +55,7 @@ function buildRtcConfig(): RTCConfiguration {
     rtcpMuxPolicy: 'require',
   };
 }
+// hello world
 const RTC_CONFIG = buildRtcConfig();
 
 function encodeAttachmentMessage(file: UploadedFileResponse): string {

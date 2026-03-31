@@ -50,6 +50,7 @@ export default function AdminPage() {
   const [deleteModal, setDeleteModal] = useState<{ username: string; confirmText: string } | null>(null);
   const [updatingRole, setUpdatingRole] = useState<string | null>(null);
   const [deletingRule, setDeletingRule] = useState<string | null>(null);
+  const [userSearch, setUserSearch] = useState('');
   const deleteInputRef = useRef<HTMLInputElement>(null);
 
   const toast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
@@ -176,6 +177,9 @@ export default function AdminPage() {
   };
 
   const adminCount = users.filter(u => u.role === 'admin').length;
+  const filteredUsers = userSearch.trim()
+    ? users.filter(u => u.username.toLowerCase().includes(userSearch.toLowerCase()))
+    : users;
   const dm = darkMode;
 
   const inputBase = `w-full rounded-xl border px-4 py-3 text-sm outline-none transition-all focus:ring-2 focus:ring-blue-500/20 ${
@@ -602,17 +606,36 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <h2 className={`font-bold text-base ${dm ? 'text-white' : 'text-slate-900'}`}>All Users</h2>
-                      <p className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`}>{users.length} member{users.length !== 1 ? 's' : ''}</p>
+                      <p className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`}>{filteredUsers.length} member{filteredUsers.length !== 1 ? 's' : ''}{userSearch.trim() && ` (filtered from ${users.length})`}</p>
                     </div>
                   </div>
                 </div>
 
-                {users.length === 0 ? (
-                  <div className={`flex flex-col items-center gap-3 p-16 text-center ${dm ? 'text-slate-500' : 'text-slate-400'}`}>
-                    <svg className="w-10 h-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                <div className="px-6 py-3">
+                  <div className="relative">
+                    <svg className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${dm ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                     </svg>
-                    <p className="text-sm">No users yet — create one above</p>
+                    <input
+                      type="text"
+                      placeholder="Search users..."
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className={`w-full pl-10 pr-4 py-2 rounded-xl border text-sm outline-none transition-all ${
+                        dm
+                          ? 'border-slate-700/60 bg-slate-800/30 text-slate-200 placeholder:text-slate-500 focus:border-violet-500'
+                          : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-violet-400'
+                      }`}
+                    />
+                  </div>
+                </div>
+
+                {filteredUsers.length === 0 ? (
+                  <div className={`flex flex-col items-center gap-3 p-12 text-center ${dm ? 'text-slate-500' : 'text-slate-400'}`}>
+                    <svg className="w-10 h-10 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <p className="text-sm">{userSearch.trim() ? 'No users match your search' : 'No users yet — create one above'}</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -625,7 +648,7 @@ export default function AdminPage() {
                         </tr>
                       </thead>
                       <tbody className={`divide-y ${dm ? 'divide-slate-800/60' : 'divide-slate-100'}`}>
-                        {users.map((user) => {
+                        {filteredUsers.map((user) => {
                           const isMe = user.username === profile?.username;
                           const isUpdating = updatingRole === user.username;
                           return (
@@ -672,17 +695,17 @@ export default function AdminPage() {
                                 {!isMe && (
                                   <button
                                     type="button"
+                                    title="Delete user"
                                     onClick={() => setDeleteModal({ username: user.username, confirmText: '' })}
-                                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                                    className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-all ${
                                       dm
                                         ? 'border-slate-700/60 text-slate-500 hover:border-rose-700/60 hover:text-rose-400 hover:bg-rose-900/10'
                                         : 'border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-600 hover:bg-rose-50'
                                     }`}
                                   >
-                                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                     </svg>
-                                    Delete
                                   </button>
                                 )}
                               </td>
@@ -763,22 +786,20 @@ export default function AdminPage() {
                             <td className="px-6 py-4 text-right">
                               <button
                                 type="button"
+                                title="Remove rule"
                                 disabled={deletingRule === rule.id}
                                 onClick={() => deleteRule(rule.id)}
-                                className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-50 ${
+                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-all disabled:opacity-50 ${
                                   dm
                                     ? 'border-slate-700/60 text-slate-500 hover:border-rose-700/60 hover:text-rose-400 hover:bg-rose-900/10'
                                     : 'border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-600 hover:bg-rose-50'
                                 }`}
                               >
                                 {deletingRule === rule.id
-                                  ? <div className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                                  : <>
-                                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                      </svg>
-                                      Remove
-                                    </>
+                                  ? <div className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                  : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
                                 }
                               </button>
                             </td>

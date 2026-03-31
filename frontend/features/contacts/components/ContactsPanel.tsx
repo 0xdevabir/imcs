@@ -106,18 +106,18 @@ export function ContactsPanel(props: ContactsPanelProps) {
 
   return (
     <section className={`h-full flex flex-col ${
-      props.darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+      props.darkMode ? 'bg-[#111b21] text-[#e9edef]' : 'bg-[#f0f2f5] text-slate-900'
     }`}>
       {/* Header */}
       <div className={`px-5 pt-5 pb-4 border-b ${
-        props.darkMode ? 'border-white/5 bg-slate-900' : 'border-slate-200 bg-white'
+        props.darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
       }`}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h1 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+            <h1 className={`text-lg font-bold tracking-tight ${props.darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>
               Contacts
             </h1>
-            <p className={`text-xs mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
+            <p className={`text-xs mt-0.5 ${props.darkMode ? 'text-[#8696a0]' : 'text-slate-500'}`}>
               {contacts.length} saved
               {onlineContactCount > 0 && (
                 <span className="inline-flex items-center gap-1 ml-2">
@@ -131,7 +131,11 @@ export function ContactsPanel(props: ContactsPanelProps) {
           <button
             type="button"
             onClick={() => setModalOpen(true)}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-all duration-150 active:scale-95 shadow-sm shadow-blue-500/25"
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-150 active:scale-95 ${
+              props.darkMode
+                ? 'bg-[#00a884] hover:bg-[#02c197]'
+                : 'bg-blue-600 hover:bg-blue-500 shadow-sm shadow-blue-500/25'
+            }`}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -142,9 +146,9 @@ export function ContactsPanel(props: ContactsPanelProps) {
 
         {/* Search */}
         <div className={`flex items-center gap-2 rounded-xl px-3 py-2 ${
-          props.darkMode ? 'bg-slate-800' : 'bg-slate-100'
+          props.darkMode ? 'bg-[#111b21]' : 'bg-slate-100'
         }`}>
-          <svg className={`w-4 h-4 flex-shrink-0 ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}
+          <svg className={`w-4 h-4 flex-shrink-0 ${props.darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}
             fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
@@ -153,12 +157,12 @@ export function ContactsPanel(props: ContactsPanelProps) {
             onChange={(e) => props.onSearchQueryChange(e.target.value)}
             placeholder="Search by username..."
             className={`flex-1 bg-transparent text-sm outline-none ${
-              props.darkMode ? 'text-slate-200 placeholder:text-slate-600' : 'text-slate-800 placeholder:text-slate-400'
+              props.darkMode ? 'text-[#e9edef] placeholder:text-[#8696a0]' : 'text-slate-800 placeholder:text-slate-400'
             }`}
           />
           {props.searchQuery && (
             <button type="button" onClick={() => props.onSearchQueryChange('')}
-              className={`flex-shrink-0 transition-colors ${props.darkMode ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'}`}>
+              className={`flex-shrink-0 transition-colors ${props.darkMode ? 'text-[#8696a0] hover:text-[#e9edef]' : 'text-slate-400 hover:text-slate-600'}`}>
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -177,7 +181,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
               if (filteredUsers.length === 0) {
                 return (
                   <div className="text-center py-10">
-                    <p className={`text-sm ${props.darkMode ? 'text-slate-500' : 'text-slate-400'}`}>No users match "{props.searchQuery}"</p>
+                    <p className={`text-sm ${props.darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}>No users match "{props.searchQuery}"</p>
                   </div>
                 );
               }
@@ -268,14 +272,14 @@ export function ContactsPanel(props: ContactsPanelProps) {
             {otherUsers.length === 0 && contacts.length === 0 && (
               <div className="flex flex-col items-center justify-center py-20 text-center px-8">
                 <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mb-5 ${
-                  props.darkMode ? 'bg-slate-800' : 'bg-white shadow-sm'
+                  props.darkMode ? 'bg-[#202c33]' : 'bg-white shadow-sm'
                 }`}>
-                  <svg className={`w-8 h-8 ${props.darkMode ? 'text-slate-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <svg className={`w-8 h-8 ${props.darkMode ? 'text-[#667781]' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                   </svg>
                 </div>
-                <p className={`text-sm font-semibold mb-1 ${props.darkMode ? 'text-slate-400' : 'text-slate-600'}`}>No contacts yet</p>
-                <p className={`text-xs leading-relaxed ${props.darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+                <p className={`text-sm font-semibold mb-1 ${props.darkMode ? 'text-[#8696a0]' : 'text-slate-600'}`}>No contacts yet</p>
+                <p className={`text-xs leading-relaxed ${props.darkMode ? 'text-[#667781]' : 'text-slate-400'}`}>
                   Click Add Contact to find people by username
                 </p>
               </div>
@@ -300,7 +304,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] pointer-events-none">
           <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl shadow-xl text-sm font-medium ${
-            props.darkMode ? 'bg-slate-800 text-white ring-1 ring-slate-700' : 'bg-slate-900 text-white'
+            props.darkMode ? 'bg-[#202c33] text-[#e9edef] ring-1 ring-white/10' : 'bg-slate-900 text-white'
           }`}>
             <span className="w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center flex-shrink-0">
               <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -333,7 +337,7 @@ function ContactRow(props: ContactRowProps) {
 
   return (
     <div className={`group flex items-center gap-3 px-4 py-3 transition-colors duration-100 ${
-      props.darkMode ? 'hover:bg-slate-800/50' : 'hover:bg-slate-50'
+      props.darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'
     }`}>
       {/* Avatar + status */}
       <div className="relative flex-shrink-0">
@@ -345,7 +349,7 @@ function ContactRow(props: ContactRowProps) {
           {props.user.username.charAt(0).toUpperCase()}
         </button>
         <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 ${
-          props.darkMode ? 'border-slate-950' : 'border-white'
+          props.darkMode ? 'border-[#111b21]' : 'border-white'
         } ${props.isOnline ? statusDot(props.onlineStatus) : 'bg-slate-300'}`} />
       </div>
 
@@ -356,12 +360,12 @@ function ContactRow(props: ContactRowProps) {
         className="flex-1 min-w-0 text-left"
       >
         <div className="flex items-center gap-2">
-          <p className={`text-sm font-semibold truncate ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+          <p className={`text-sm font-semibold truncate ${props.darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>
             {props.user.username}
           </p>
           {props.user.role === 'admin' && (
             <span className={`flex-shrink-0 text-[10px] font-bold rounded px-1.5 py-0.5 ${
-              props.darkMode ? 'bg-indigo-500/15 text-indigo-400' : 'bg-indigo-50 text-indigo-600'
+              props.darkMode ? 'bg-amber-500/15 text-amber-400' : 'bg-indigo-50 text-indigo-600'
             }`}>ADMIN</span>
           )}
         </div>
@@ -419,10 +423,10 @@ function ActionBtn({
       className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors duration-100 ${
         danger
           ? darkMode
-            ? 'text-slate-500 hover:text-rose-400 hover:bg-rose-500/10'
+            ? 'text-[#8696a0] hover:text-rose-400 hover:bg-rose-500/10'
             : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
           : darkMode
-            ? 'text-slate-500 hover:text-slate-200 hover:bg-slate-700'
+            ? 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]'
             : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
       }`}
     >
@@ -432,11 +436,11 @@ function ActionBtn({
 }
 
 function SectionLabel({ label, accent, darkMode }: { label: string; accent?: string; darkMode: boolean }) {
-  const dotColor = accent === 'emerald' ? 'bg-emerald-500' : darkMode ? 'bg-slate-700' : 'bg-slate-300';
+  const dotColor = accent === 'emerald' ? 'bg-emerald-500' : darkMode ? 'bg-[#667781]' : 'bg-slate-300';
   return (
     <div className="flex items-center gap-2 mb-1">
       <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-      <p className={`text-[10px] font-bold uppercase tracking-widest ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+      <p className={`text-[10px] font-bold uppercase tracking-widest ${darkMode ? 'text-[#667781]' : 'text-slate-400'}`}>
         {label}
       </p>
     </div>
@@ -499,23 +503,23 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className={`w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden ${
-        darkMode ? 'bg-slate-900 ring-1 ring-white/10' : 'bg-white ring-1 ring-slate-200'
+        darkMode ? 'bg-[#202c33] ring-1 ring-white/10' : 'bg-white ring-1 ring-slate-200'
       }`}>
         {/* Header */}
         <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
           <div className="flex items-center gap-3">
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${darkMode ? 'bg-blue-500/15' : 'bg-blue-50'}`}>
-              <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${darkMode ? 'bg-[#00a884]/15' : 'bg-blue-50'}`}>
+              <svg className={`w-4 h-4 ${darkMode ? 'text-[#00a884]' : 'text-blue-500'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
               </svg>
             </div>
-            <h2 className={`text-sm font-bold ${darkMode ? 'text-white' : 'text-slate-900'}`}>Add Contact</h2>
+            <h2 className={`text-sm font-bold ${darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>Add Contact</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-              darkMode ? 'text-slate-500 hover:text-slate-300 hover:bg-slate-800' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
+              darkMode ? 'text-[#8696a0] hover:text-[#e9edef] hover:bg-[#2a3942]' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
             }`}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -528,15 +532,15 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
         <div className="px-5 py-5 space-y-4">
           {/* Input */}
           <div>
-            <label className={`block text-xs font-semibold mb-2 ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+            <label className={`block text-xs font-semibold mb-2 ${darkMode ? 'text-[#8696a0]' : 'text-slate-600'}`}>
               Username
             </label>
             <div className={`flex items-center gap-0 rounded-xl border overflow-hidden transition-colors ${
               darkMode
-                ? 'border-slate-700 bg-slate-800 focus-within:border-blue-500'
+                ? 'border-white/8 bg-[#111b21] focus-within:border-[#00a884]'
                 : 'border-slate-200 bg-slate-50 focus-within:border-blue-400 focus-within:bg-white'
             }`}>
-              <span className={`pl-3.5 text-sm font-semibold select-none ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>@</span>
+              <span className={`pl-3.5 text-sm font-semibold select-none ${darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}>@</span>
               <input
                 ref={inputRef}
                 type="text"
@@ -549,12 +553,12 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
                 autoComplete="off"
                 spellCheck={false}
                 className={`flex-1 bg-transparent px-2 py-2.5 text-sm outline-none ${
-                  darkMode ? 'text-slate-100 placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'
+                  darkMode ? 'text-[#e9edef] placeholder:text-[#8696a0]' : 'text-slate-900 placeholder:text-slate-400'
                 }`}
               />
               {searching && (
                 <div className="pr-3">
-                  <svg className={`animate-spin w-4 h-4 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} viewBox="0 0 24 24">
+                  <svg className={`animate-spin w-4 h-4 ${darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`} viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
@@ -585,16 +589,16 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
 
             {!searching && result && result !== 'not-found' && (
               <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${
-                darkMode ? 'bg-slate-800 ring-1 ring-white/5' : 'bg-slate-50 ring-1 ring-slate-200'
+                darkMode ? 'bg-[#111b21] ring-1 ring-white/5' : 'bg-slate-50 ring-1 ring-slate-200'
               }`}>
                 <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(result.username)} flex items-center justify-center text-sm font-bold text-white flex-shrink-0`}>
                   {result.username.charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                  <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>
                     {result.username}
                   </p>
-                  <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                  <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-slate-400'}`}>
                     @{result.username.toLowerCase()}
                     {result.role === 'admin' && (
                       <span className={`ml-2 font-semibold ${darkMode ? 'text-amber-400' : 'text-amber-600'}`}>· Admin</span>
@@ -607,8 +611,8 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
                   disabled={addedIds.includes(result.userId)}
                   className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 ${
                     addedIds.includes(result.userId)
-                      ? darkMode ? 'bg-slate-700 text-slate-500 cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                      : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
+                      ? darkMode ? 'bg-[#2a3942] text-[#667781] cursor-not-allowed' : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                      : darkMode ? 'bg-[#00a884] hover:bg-[#02c197] text-white shadow-sm' : 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
                   }`}
                 >
                   {addedIds.includes(result.userId) ? (
@@ -631,9 +635,9 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
             )}
           </div>
 
-          <p className={`text-[11px] ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
-            Try <span className={`font-mono font-semibold ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>@abir</span>,{' '}
-            <span className={`font-mono font-semibold ${darkMode ? 'text-slate-500' : 'text-slate-500'}`}>@rayat</span>,{' '}
+          <p className={`text-[11px] ${darkMode ? 'text-[#667781]' : 'text-slate-400'}`}>
+            Try <span className={`font-mono font-semibold ${darkMode ? 'text-[#8696a0]' : 'text-slate-500'}`}>@abir</span>,{' '}
+            <span className={`font-mono font-semibold ${darkMode ? 'text-[#8696a0]' : 'text-slate-500'}`}>@rayat</span>,{' '}
             or any team member&apos;s username.
           </p>
         </div>

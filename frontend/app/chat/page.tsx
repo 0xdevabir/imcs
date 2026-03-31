@@ -1346,8 +1346,8 @@ export default function ChatPage() {
   }
 
   return (
-    <main className={`${darkMode ? 'dark' : ''}`}>
-      <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
+    <main className={`${darkMode ? 'dark bg-[#111b21]' : 'bg-[#f0f2f5]'}`}>
+      <div className={`h-[100dvh] pb-[calc(56px+env(safe-area-inset-bottom))] md:h-screen md:pb-0 w-full ${darkMode ? 'bg-[#111b21] text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
         <div className="flex h-full">
           {/* Left nav sidebar — always visible on desktop */}
           <Sidebar

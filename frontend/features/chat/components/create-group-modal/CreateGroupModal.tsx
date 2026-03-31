@@ -127,35 +127,44 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
 
   const inputBase = `w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-all ${
     darkMode
-      ? 'border-slate-700/60 bg-slate-950 text-slate-100 placeholder:text-slate-600 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/10'
-      : 'border-slate-200 bg-slate-50 text-slate-900 placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100'
+      ? 'border-white/8 bg-[#111b21] text-[#e9edef] placeholder:text-[#8696a0] focus:border-[#00a884]/50 focus:ring-2 focus:ring-[#00a884]/10'
+      : 'border-[var(--border-subtle)] bg-[var(--surface-2)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[color:rgba(59,130,246,0.15)]'
   }`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" onClick={onClose} />
 
-      <div className={`relative w-full max-w-md rounded-2xl border shadow-2xl ${
-        darkMode ? 'border-slate-700/60 bg-slate-900' : 'border-slate-200/80 bg-white'
-      }`}>
+      <div
+        className={`relative w-full max-w-md rounded-2xl border shadow-2xl ${
+          darkMode ? 'border-white/10 bg-[#202c33]' : 'border-[var(--border-subtle)] bg-[var(--surface-1)]'
+        }`}
+        style={{ boxShadow: 'var(--shadow-lg)' }}
+      >
 
         {/* Header */}
-        <div className={`flex items-center justify-between px-5 py-4 border-b ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+        <div
+          className={`flex items-center justify-between border-b px-5 py-4 ${
+            darkMode ? 'border-white/5' : 'border-[var(--border-subtle)]'
+          }`}
+        >
           <div className="flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${darkMode ? 'bg-blue-500/15' : 'bg-blue-50'}`}>
-              <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl ${darkMode ? 'bg-[#00a884]/15' : 'bg-[color:rgba(30,64,175,0.08)]'}`}>
+              <svg className={`w-5 h-5 ${darkMode ? 'text-[#00a884]' : 'text-[var(--primary)]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
             <div>
-              <h2 className={`text-sm font-bold ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>New Group</h2>
-              <p className={`text-xs ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>Name your group and add members</p>
+              <h2 className={`text-sm font-bold ${darkMode ? 'text-[#e9edef]' : 'text-[var(--text-primary)]'}`}>New Group</h2>
+              <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-tertiary)]'}`}>Name your group and add members</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${darkMode ? 'hover:bg-slate-800 text-slate-500' : 'hover:bg-slate-100 text-slate-400'}`}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${
+              darkMode ? 'text-[#8696a0] hover:bg-white/8 hover:text-[#e9edef]' : 'text-[var(--text-tertiary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'
+            }`}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -168,7 +177,7 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
 
           {/* Group Name */}
           <div>
-            <label className={`block text-xs font-semibold mb-1.5 ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
+            <label className={`mb-1.5 block text-xs font-semibold ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-secondary)]'}`}>
               Group Name <span className="text-rose-500">*</span>
             </label>
             <input
@@ -185,11 +194,11 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
           {/* Members Search */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className={`text-xs font-semibold ${darkMode ? 'text-slate-400' : 'text-slate-500'}`}>
-                Add Members <span className={darkMode ? 'text-slate-600' : 'text-slate-400'}>(optional)</span>
+              <label className={`text-xs font-semibold ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-secondary)]'}`}>
+                Add Members <span className={darkMode ? 'text-[#667781]' : 'text-[var(--text-muted)]'}>(optional)</span>
               </label>
               {selected.length > 0 && (
-                <span className={`text-xs tabular-nums ${darkMode ? 'text-slate-500' : 'text-slate-400'}`}>
+                <span className={`text-xs tabular-nums ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-tertiary)]'}`}>
                   {selected.length} selected
                 </span>
               )}
@@ -201,16 +210,21 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
                 {selected.map(user => (
                   <span
                     key={user.userId}
-                    className={`inline-flex items-center gap-1.5 rounded-lg pl-1 pr-1.5 py-0.5 text-xs font-medium ${
-                      darkMode ? 'bg-blue-500/15 text-blue-300' : 'bg-blue-50 text-blue-700'
+                    className={`inline-flex items-center gap-1.5 rounded-lg py-0.5 pl-1 pr-1.5 text-xs font-medium ${
+                      darkMode ? 'bg-[#00a884]/15 text-[#7ae3cb]' : 'text-[var(--primary)]'
                     }`}
+                    style={darkMode ? undefined : {
+                      background: 'color-mix(in srgb, var(--primary) 14%, var(--surface-1))',
+                    }}
                   >
                     <AvatarCircle username={user.username} size="sm" />
                     {user.username}
                     <button
                       type="button"
                       onClick={() => removeUser(user.userId)}
-                      className={`ml-0.5 rounded-full p-0.5 transition-colors ${darkMode ? 'hover:bg-blue-500/30 text-blue-400' : 'hover:bg-blue-200 text-blue-500'}`}
+                      className={`ml-0.5 rounded-full p-0.5 transition-colors ${
+                        darkMode ? 'text-[#7ae3cb] hover:bg-[#00a884]/20' : 'text-[var(--primary)]'
+                      }`}
                     >
                       <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -223,17 +237,19 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
 
             {/* Search input + dropdown */}
             <div className="relative" ref={containerRef}>
-              <div className={`flex items-center gap-2.5 rounded-xl border px-3 transition-all ${
-                darkMode
-                  ? 'border-slate-700/60 bg-slate-950 focus-within:border-blue-500/60 focus-within:ring-2 focus-within:ring-blue-500/10'
-                  : 'border-slate-200 bg-slate-50 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100'
-              }`}>
+              <div
+                className={`flex items-center gap-2.5 rounded-xl border px-3 transition-all ${
+                  darkMode
+                    ? 'border-white/8 bg-[#111b21] focus-within:border-[#00a884]/50 focus-within:ring-2 focus-within:ring-[#00a884]/10'
+                    : 'border-[var(--border-subtle)] bg-[var(--surface-2)] focus-within:border-[var(--primary)] focus-within:ring-2 focus-within:ring-[color:rgba(59,130,246,0.15)]'
+                }`}
+              >
                 {isSearching
-                  ? <svg className={`w-4 h-4 flex-shrink-0 animate-spin ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24">
+                  ? <svg className={`w-4 h-4 flex-shrink-0 animate-spin ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-tertiary)]'}`} fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                     </svg>
-                  : <svg className={`w-4 h-4 flex-shrink-0 ${darkMode ? 'text-slate-500' : 'text-slate-400'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  : <svg className={`w-4 h-4 flex-shrink-0 ${darkMode ? 'text-[#8696a0]' : 'text-[var(--text-tertiary)]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 105 11a6 6 0 0012 0z" />
                     </svg>
                 }
@@ -245,7 +261,7 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
                   onFocus={() => { if (searchResults.length > 0) setDropdownOpen(true); }}
                   placeholder="Search by username…"
                   className={`flex-1 bg-transparent py-2.5 text-sm outline-none ${
-                    darkMode ? 'text-slate-100 placeholder:text-slate-600' : 'text-slate-900 placeholder:text-slate-400'
+                    darkMode ? 'text-[#e9edef] placeholder:text-[#8696a0]' : 'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]'
                   }`}
                 />
               </div>
@@ -254,9 +270,10 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
               {dropdownOpen && searchResults.length > 0 && (
                 <div
                   ref={dropdownRef}
-                  className={`absolute top-full left-0 right-0 mt-1.5 rounded-xl border shadow-xl overflow-hidden z-10 ${
-                    darkMode ? 'border-slate-700/60 bg-slate-900' : 'border-slate-200 bg-white'
+                  className={`absolute left-0 right-0 top-full z-10 mt-1.5 overflow-hidden rounded-xl border shadow-xl ${
+                    darkMode ? 'border-white/10 bg-[#202c33]' : 'border-[var(--border-subtle)] bg-[var(--surface-1)]'
                   }`}
+                  style={{ boxShadow: 'var(--shadow-md)' }}
                 >
                   {searchResults.map((user, i) => (
                     <button
@@ -266,17 +283,17 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
                       onMouseEnter={() => setHighlightedIndex(i)}
                       className={`w-full flex items-center gap-3 px-3.5 py-2.5 text-left transition-colors ${
                         i === highlightedIndex
-                          ? darkMode ? 'bg-slate-800' : 'bg-blue-50'
-                          : darkMode ? 'hover:bg-slate-800/60' : 'hover:bg-slate-50'
+                          ? darkMode ? 'bg-[#2a3942]' : 'bg-[color:rgba(30,64,175,0.08)]'
+                          : darkMode ? 'hover:bg-white/5' : 'hover:bg-[var(--surface-2)]'
                       }`}
                     >
                       <AvatarCircle username={user.username} size="md" />
                       <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-medium truncate ${darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+                        <p className={`truncate text-sm font-medium ${darkMode ? 'text-[#e9edef]' : 'text-[var(--text-primary)]'}`}>
                           {user.username}
                         </p>
                       </div>
-                      <svg className={`w-4 h-4 flex-shrink-0 ${darkMode ? 'text-slate-600' : 'text-slate-300'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <svg className={`w-4 h-4 flex-shrink-0 ${darkMode ? 'text-[#667781]' : 'text-[var(--text-muted)]'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                       </svg>
                     </button>
@@ -286,15 +303,18 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
 
               {/* No results */}
               {dropdownOpen && searchResults.length === 0 && !isSearching && searchQuery.trim().length > 0 && (
-                <div className={`absolute top-full left-0 right-0 mt-1.5 rounded-xl border shadow-xl px-4 py-3 z-10 ${
-                  darkMode ? 'border-slate-700/60 bg-slate-900 text-slate-500' : 'border-slate-200 bg-white text-slate-400'
-                }`}>
+                <div
+                  className={`absolute left-0 right-0 top-full z-10 mt-1.5 rounded-xl border px-4 py-3 shadow-xl ${
+                    darkMode ? 'border-white/10 bg-[#202c33] text-[#8696a0]' : 'border-[var(--border-subtle)] bg-[var(--surface-1)] text-[var(--text-tertiary)]'
+                  }`}
+                  style={{ boxShadow: 'var(--shadow-md)' }}
+                >
                   <p className="text-sm">No users found for &ldquo;{searchQuery}&rdquo;</p>
                 </div>
               )}
             </div>
 
-            <p className={`text-[11px] mt-1.5 ${darkMode ? 'text-slate-600' : 'text-slate-400'}`}>
+            <p className={`mt-1.5 text-[11px] ${darkMode ? 'text-[#667781]' : 'text-[var(--text-tertiary)]'}`}>
               Type to search · use ↑↓ to navigate · Enter to select
             </p>
           </div>
@@ -304,7 +324,10 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit || submitting}
-            className="w-full rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-blue-500/20 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
+            className={`flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${
+              darkMode ? 'bg-[#00a884] hover:bg-[#02c197]' : 'bg-[var(--primary)] hover:opacity-95'
+            }`}
+            style={{ boxShadow: 'var(--shadow-md)' }}
           >
             {submitting
               ? <>

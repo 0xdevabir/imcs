@@ -27,9 +27,11 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
     <button
       type="button"
       onClick={onToggle}
-      className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${on ? 'bg-[#00a884]' : 'bg-slate-600/60'}`}
+      className={`relative flex-shrink-0 w-11 h-6 rounded-full overflow-hidden transition-colors duration-200 focus:outline-none ${on ? 'bg-[#00a884]' : 'bg-slate-600/60'}`}
     >
-      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 ${on ? 'translate-x-6' : 'translate-x-1'}`} />
+      <span
+        className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200 ${on ? 'translate-x-5' : 'translate-x-0'}`}
+      />
     </button>
   );
 }

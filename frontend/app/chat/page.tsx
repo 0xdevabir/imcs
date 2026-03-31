@@ -1452,7 +1452,7 @@ export default function ChatPage() {
 
             {/* Mobile-only: non-chat section full-screen views with sliding animation */}
             {activeSection !== 'chats' && (
-              <div className={`flex md:hidden absolute inset-0 z-10 flex-col ${
+              <div className={`flex md:hidden absolute inset-0 z-10 w-full min-w-0 flex-col ${
                 mobileTransitioning
                   ? slideDir === 1
                     ? 'animate-slide-in-right'
@@ -1706,7 +1706,7 @@ export default function ChatPage() {
 
                 {/* Group info / settings slide-in panel - only show for groups, not DMs */}
                 <div
-                  className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden absolute right-0 top-0 bottom-0 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  className={`flex flex-col w-full md:w-72 border-l shrink-0 overflow-hidden absolute right-0 top-0 bottom-0 z-20 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
                     showGroupInfo
                       ? 'translate-x-0 opacity-100'
                       : 'translate-x-full opacity-0 pointer-events-none'
@@ -1859,7 +1859,7 @@ export default function ChatPage() {
         {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
           className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
-            darkMode ? 'border-white/5 bg-slate-950/98' : 'border-slate-200 bg-white'
+            darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
           }`}
           style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
@@ -1905,9 +1905,19 @@ export default function ChatPage() {
               label: 'Profile',
               icon: (active: boolean, profileData?: { username: string }) => {
                 const name = profileData?.username || 'U';
-                const grad = `from-blue-500 to-indigo-600`;
+                const grad = darkMode ? 'from-[#00a884] to-emerald-400' : 'from-blue-500 to-indigo-600';
                 return (
-                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-[10px] font-bold text-white`}>
+                  <div
+                    className={`w-6 h-6 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-[10px] font-bold text-white ${
+                      darkMode
+                        ? active
+                          ? 'ring-2 ring-[#00a884]/55 ring-offset-2 ring-offset-[#202c33] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]'
+                          : 'ring-1 ring-white/12'
+                        : active
+                          ? 'ring-2 ring-blue-500/35 ring-offset-2 ring-offset-white'
+                          : 'ring-1 ring-slate-200'
+                    }`}
+                  >
                     {name.charAt(0).toUpperCase()}
                   </div>
                 );
@@ -1938,17 +1948,17 @@ export default function ChatPage() {
                 }}
                 className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${
                   isActive
-                    ? darkMode ? 'text-blue-400' : 'text-blue-600'
-                    : darkMode ? 'text-slate-600' : 'text-slate-400'
+                    ? darkMode ? 'text-[#00a884]' : 'text-blue-600'
+                    : darkMode ? 'text-[#8696a0]' : 'text-slate-400'
                 }`}
               >
                 {/* Active top line indicator */}
                 {isActive && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-blue-500" />
+                  <span className={`absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full ${darkMode ? 'bg-[#00a884]' : 'bg-blue-500'}`} />
                 )}
                 {/* Unread badge */}
                 {id === 'chats' && unreadTotal > 0 && !isActive && (
-                  <span className="absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[9px] font-bold px-0.5">
+                  <span className={`absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full text-white text-[9px] font-bold px-0.5 ${darkMode ? 'bg-[#00a884]' : 'bg-blue-500'}`}>
                     {unreadTotal > 9 ? '9+' : unreadTotal}
                   </span>
                 )}
@@ -1963,20 +1973,20 @@ export default function ChatPage() {
       {isNavModalOpen && (
         <div className="fixed inset-0 z-40 flex">
           <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsNavModalOpen(false)} />
-          <div className={`relative m-3 h-[calc(100%-1.5rem)] w-full max-w-xs rounded-2xl border shadow-2xl ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-            <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+          <div className={`relative m-3 h-[calc(100%-1.5rem)] w-full max-w-xs rounded-2xl border shadow-2xl ${darkMode ? 'border-white/10 bg-[#202c33]' : 'border-slate-200 bg-white'}`}>
+            <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
               <div className="flex items-center gap-2">
-                <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${darkMode ? 'bg-[#111b21] text-[#e9edef]' : 'bg-slate-100 text-slate-600'}`}>
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
                   </svg>
                 </span>
-                <p className="text-sm font-semibold">Navigation</p>
+                <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>Navigation</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsNavModalOpen(false)}
-                className={`h-8 w-8 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+                className={`h-8 w-8 rounded-lg transition-colors ${darkMode ? 'text-[#8696a0] hover:bg-[#111b21] hover:text-[#e9edef]' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
                 title="Close"
               >
                 <svg className="mx-auto h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2001,15 +2011,15 @@ export default function ChatPage() {
                     className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
                       isActive
                         ? darkMode
-                          ? 'bg-blue-500/15 text-blue-300'
+                          ? 'bg-[#00a884]/15 text-[#7ae3cb]'
                           : 'bg-blue-50 text-blue-700'
                         : darkMode
-                          ? 'text-slate-300 hover:bg-slate-800'
+                          ? 'text-[#e9edef] hover:bg-[#111b21]'
                           : 'text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <p className="text-sm font-semibold">{item.label}</p>
-                    <p className={`text-[11px] ${isActive ? (darkMode ? 'text-blue-300/80' : 'text-blue-600/80') : (darkMode ? 'text-slate-500' : 'text-slate-400')}`}>
+                    <p className={`text-[11px] ${isActive ? (darkMode ? 'text-[#7ae3cb]/80' : 'text-blue-600/80') : (darkMode ? 'text-[#8696a0]' : 'text-slate-400')}`}>
                       {item.helper}
                     </p>
                   </button>
@@ -2017,11 +2027,11 @@ export default function ChatPage() {
               })}
             </nav>
 
-            <div className={`absolute bottom-0 left-0 right-0 border-t px-3 py-3 ${darkMode ? 'border-slate-800 bg-slate-900/95' : 'border-slate-100 bg-white/95'}`}>
+            <div className={`absolute bottom-0 left-0 right-0 border-t px-3 py-3 ${darkMode ? 'border-white/5 bg-[#202c33]/95' : 'border-slate-100 bg-white/95'}`}>
               <button
                 type="button"
                 onClick={() => setDarkMode((current) => !current)}
-                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${darkMode ? 'bg-[#111b21] text-[#e9edef] hover:bg-[#2a3942]' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
               >
                 {darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               </button>

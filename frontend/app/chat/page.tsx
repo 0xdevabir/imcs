@@ -152,7 +152,7 @@ export default function ChatPage() {
   const typingClearTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingOptimisticsRef = useRef<string[]>([]); // FIFO queue of __temp__ IDs waiting for server confirmation
+  const pendingOptimisticsRef = useRef<Map<string, ChatMessage>>(new Map()); // tempId -> optimistic message waiting for server confirmation
   const resolvedOptimisticsRef = useRef<Set<string>>(new Set()); // tempIds the server already confirmed before React flushed them
 
   const touchStartX = useRef<number | null>(null);
@@ -171,6 +171,7 @@ export default function ChatPage() {
   const processedPeerIdsRef = useRef<Set<number>>(new Set());
   // Tracks whether the user has explicitly joined/accepted a call (not just received an invite)
   const isInCallRef = useRef(false);
+  const pendingDMRoomsRef = useRef<Set<string>>(new Set());
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -529,7 +530,6 @@ export default function ChatPage() {
       setRooms((prev) => {
         const current = prev.find((room) => room.key === payload.room.key);
         let roomName = payload.room.name || current?.name || payload.room.key;
-        // For DMs, only derive name from messages if we don't already have a stable name
         if (payload.room.key.startsWith('dm_') && !current?.name) {
           const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profile.userId));
           if (otherParticipant) {
@@ -543,28 +543,40 @@ export default function ChatPage() {
           lastMessage: payload.messages.length > 0 ? summarizeMessage(payload.messages[payload.messages.length - 1].content) : current?.lastMessage ?? 'No messages yet',
           lastAt: payload.messages.length > 0 ? payload.messages[payload.messages.length - 1].createdAt : current?.lastAt,
         };
-        if (!current) return [...prev, next];
-        return prev.map((room) => (room.key === payload.room.key ? next : room));
+        const filtered = prev.filter((room) => room.key !== payload.room.key);
+        const seenKeys = new Set<string>();
+        return [next, ...filtered].filter((r) => {
+          if (seenKeys.has(r.key)) return false;
+          seenKeys.add(r.key);
+          return true;
+        });
       });
     });
     socket.on('receive_message', (message: ChatMessage) => {
       const isFromMe = Number(message.sender.userId) === Number(profile.userId);
-      const tempId = isFromMe && pendingOptimisticsRef.current.length > 0
-        ? pendingOptimisticsRef.current.shift()!
-        : null;
+
+      let matchedTempId: string | null = null;
+      if (isFromMe) {
+        const entries = Array.from(pendingOptimisticsRef.current.entries());
+        for (const [tempId, optimistic] of entries) {
+          if (optimistic.roomKey === message.roomKey && optimistic.content === message.content) {
+            matchedTempId = tempId;
+            break;
+          }
+        }
+      }
 
       setMessages((prev) => {
         if (prev.some((item) => item.id === message.id)) return prev;
-        if (tempId) {
-          const idx = prev.findIndex((item) => item.id === tempId);
+        if (matchedTempId) {
+          pendingOptimisticsRef.current.delete(matchedTempId);
+          const idx = prev.findIndex((item) => item.id === matchedTempId);
           if (idx !== -1) {
             const updated = [...prev];
             updated[idx] = message;
             return updated;
           }
-          // Optimistic not in state yet — server beat React's flush.
-          // Add the real message now; mark tempId resolved so the pending setMessages skips it.
-          resolvedOptimisticsRef.current.add(tempId);
+          resolvedOptimisticsRef.current.add(matchedTempId);
         }
         return [...prev, message];
       });
@@ -587,7 +599,13 @@ export default function ChatPage() {
           lastMessage: summarizeMessage(message.content),
           lastAt: message.createdAt,
         };
-        return [nextRoom, ...prev.filter((room) => room.key !== message.roomKey)];
+        const filtered = prev.filter((room) => room.key !== message.roomKey);
+        const seenKeys = new Set<string>();
+        return [nextRoom, ...filtered].filter((r) => {
+          if (seenKeys.has(r.key)) return false;
+          seenKeys.add(r.key);
+          return true;
+        });
       });
       if (message.sender.userId !== profile.userId) {
         socket.emit('read_receipt', { messageId: message.id, status: 'DELIVERED' });
@@ -763,7 +781,15 @@ export default function ChatPage() {
     });
     socket.on('group_created', async (payload: GroupSummary) => {
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
-      setRooms((prev) => { if (prev.some((r) => r.key === payload.key)) return prev; return [...prev, { key: payload.key, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }]; });
+      setRooms((prev) => {
+        if (prev.some((r) => r.key === payload.key)) return prev;
+        const seenKeys = new Set<string>();
+        return [...prev, { key: payload.key, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }].filter((r) => {
+          if (seenKeys.has(r.key)) return false;
+          seenKeys.add(r.key);
+          return true;
+        });
+      });
     });
     socket.on('group_member_added', async () => {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
@@ -919,9 +945,10 @@ export default function ChatPage() {
 
   const sendMessage = (event: FormEvent) => {
     event.preventDefault();
-    if (!canSend || !socketRef.current || !profile) return;
+    const socket = socketRef.current;
+    if (!canSend || !socket || !profile) return;
     if (editingMessage) {
-      socketRef.current.emit('edit_message', { messageId: editingMessage.id, content: draft.trim() });
+      socket.emit('edit_message', { messageId: editingMessage.id, content: draft.trim() });
       setEditingMessage(null); setDraft(''); return;
     }
     const tempId = `__temp__${Date.now()}`;
@@ -935,7 +962,7 @@ export default function ChatPage() {
       reactions: [],
       replyTo: replyTo ? { id: replyTo.id, senderUsername: replyTo.sender.username, content: replyTo.content } : null,
     };
-    pendingOptimisticsRef.current.push(tempId);
+    pendingOptimisticsRef.current.set(tempId, optimisticMsg);
     setMessages((prev) => {
       // Server already confirmed this message before React flushed this update — skip adding the optimistic
       if (resolvedOptimisticsRef.current.has(tempId)) {
@@ -944,8 +971,8 @@ export default function ChatPage() {
       }
       return [...prev, optimisticMsg];
     });
-    socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
-    setDraft(''); setReplyTo(null); socketRef.current.emit('typing', { roomKey: activeRoomKey, isTyping: false });
+    socket.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
+    setDraft(''); setReplyTo(null); socket.emit('typing', { roomKey: activeRoomKey, isTyping: false });
   };
 
   const loadOlderMessages = async () => {
@@ -1009,9 +1036,13 @@ export default function ChatPage() {
   const ensureDirectRoomForTarget = async (targetUserId: number, targetUsername: string) => {
     if (!profile) return null;
     const roomKey = `dm_${Math.min(targetUserId, profile.userId)}_${Math.max(targetUserId, profile.userId)}`;
-    const exists = rooms.some((r) => r.key === roomKey);
+    
+    if (rooms.some((r) => r.key === roomKey) || pendingDMRoomsRef.current.has(roomKey)) {
+      return roomKey;
+    }
 
-    if (!exists) {
+    pendingDMRoomsRef.current.add(roomKey);
+    try {
       const createResponse = await authFetch(`${API_URL}/groups`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1022,12 +1053,22 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
-        setRooms((prev) => mineData.map((g) => {
-          const existing = prev.find((r) => r.key === g.key);
-          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-        }));
+        const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+        setGroups(dedupedMineData);
+        setRooms((prev) => {
+          const seenKeys = new Set<string>();
+          const existing = prev.find((r) => r.key === roomKey);
+          const newRoom: RoomItem = { key: roomKey, name: targetUsername || roomKey, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          const deduped = [...prev, newRoom].filter((r) => {
+            if (seenKeys.has(r.key)) return false;
+            seenKeys.add(r.key);
+            return true;
+          });
+          return deduped;
+        });
       }
+    } finally {
+      pendingDMRoomsRef.current.delete(roomKey);
     }
 
     return roomKey;
@@ -1595,6 +1636,7 @@ export default function ChatPage() {
               <div className={`${mobileChatOpen ? 'flex animate-slide-in-right' : 'hidden'} md:flex flex-1 flex-col overflow-hidden`}>
                   <ChatWindow
                     profile={profile}
+                    roomKey={activeRoomKey}
                     roomTitle={activeRoomName}
                     roomStatus={status}
                     darkMode={darkMode}

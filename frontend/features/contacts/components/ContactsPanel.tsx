@@ -462,7 +462,9 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
   const [result, setResult] = useState<SearchedUser | null | 'not-found'>(null);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null as unknown as HTMLInputElement);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 50);
@@ -470,10 +472,10 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
   }, []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);

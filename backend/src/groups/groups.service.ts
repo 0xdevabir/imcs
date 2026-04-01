@@ -27,7 +27,7 @@ type ParticipantView = {
 
 type GroupSummary = {
   key: string;
-  name: string | null;
+  name: string;
   ownerUserId: number | null;
   ownerUsername: string | null;
   participantCount: number;
@@ -271,8 +271,7 @@ export class GroupsService {
     });
 
     return groups.map((group) => {
-      let name = group.name;
-      // For DM rooms, always show the OTHER participant's name, not the stored room name
+      let name = group.name ?? group.key;
       if (group.key.startsWith('dm_') && group.members.length === 2) {
         const other = group.members.find((m) => m.userId !== user.userId);
         if (other) name = other.username;

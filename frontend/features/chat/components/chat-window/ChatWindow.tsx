@@ -5,6 +5,7 @@ import { avatarGradient } from '@/lib/avatar';
 
 interface ChatWindowProps {
   profile: Profile;
+  roomKey: string;
   roomTitle: string;
   roomStatus: string;
   darkMode: boolean;
@@ -44,7 +45,7 @@ type MessageRow =
 
 export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps) {
   const grad = avatarGradient(props.roomTitle);
-  const isGroup = props.participants.length > 2;
+  const isGroup = !props.roomKey.startsWith('dm_');
   const [messageSearch, setMessageSearch] = useState('');
 
   const filteredRows = useMemo<MessageRow[]>(() => {

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { ReceiptStatus } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 
 type Sender = {
@@ -74,6 +75,20 @@ export class EventsService {
   }
 
   async ensureRoom(roomKey: string, roomName?: string) {
+    const isDM = roomKey.startsWith('dm_');
+    
+    const existing = await this.prisma.chatRoom.findUnique({ where: { key: roomKey } });
+    
+    if (existing && isDM && !existing.conversationId) {
+      return this.prisma.chatRoom.update({
+        where: { id: existing.id },
+        data: {
+          name: roomName ?? existing.name,
+          conversationId: `cnv_${randomUUID()}`,
+        },
+      });
+    }
+    
     return this.prisma.chatRoom.upsert({
       where: { key: roomKey },
       update: {
@@ -82,6 +97,7 @@ export class EventsService {
       create: {
         key: roomKey,
         name: roomName,
+        ...(isDM ? { conversationId: `cnv_${randomUUID()}` } : {}),
       },
     });
   }
@@ -89,6 +105,18 @@ export class EventsService {
   async getRoomByKey(roomKey: string) {
     return this.prisma.chatRoom.findUnique({
       where: { key: roomKey },
+    });
+  }
+
+  async findRoomByConversationId(conversationId: string) {
+    return this.prisma.chatRoom.findUnique({
+      where: { conversationId },
+    });
+  }
+
+  async findRoomByGroupId(groupId: string) {
+    return this.prisma.chatRoom.findUnique({
+      where: { groupId },
     });
   }
 

@@ -138,6 +138,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /** Return all active socket IDs for a given user */
+  getSocketIdsForUser(userId: number): string[] {
+    return this.getSocketIds(userId);
+  }
+
   /** Broadcast username_changed event to all rooms the user is a member of */
   async broadcastUsernameChanged(userId: number, oldUsername: string, newUsername: string) {
     try {
@@ -189,27 +194,54 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join_room')
   async handleJoinRoom(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { roomKey?: string; roomName?: string },
+    @MessageBody() body: { roomKey?: string; groupId?: string; conversationId?: string; roomName?: string },
   ) {
     const roomKey = body?.roomKey?.trim();
-    if (!roomKey) {
-      client.emit('error', 'roomKey is required');
+    const groupId = body?.groupId?.trim();
+    const conversationId = body?.conversationId?.trim();
+
+    let room: Awaited<ReturnType<EventsService['getRoomByKey']>> | null = null;
+    let resolvedRoomKey: string | null = null;
+
+    if (roomKey) {
+      if (!this.isValidRoomKey(roomKey)) {
+        client.emit('error', 'Invalid roomKey format');
+        return;
+      }
+      room = await this.eventsService.getRoomByKey(roomKey);
+      resolvedRoomKey = roomKey;
+    } else if (groupId) {
+      room = await this.eventsService.findRoomByGroupId(groupId);
+      resolvedRoomKey = room?.key ?? null;
+    } else if (conversationId) {
+      room = await this.eventsService.findRoomByConversationId(conversationId);
+      resolvedRoomKey = room?.key ?? null;
+    }
+
+    if (!roomKey && !groupId && !conversationId) {
+      client.emit('error', 'roomKey, groupId, or conversationId is required');
       return;
     }
-    if (!this.isValidRoomKey(roomKey)) {
-      client.emit('error', 'Invalid roomKey format');
+
+    if (!room) {
+      if (groupId) {
+        client.emit('error', 'Group not found');
+      } else if (conversationId) {
+        client.emit('error', 'Conversation not found');
+      } else {
+        client.emit('error', 'Room not found');
+      }
+      return;
+    }
+
+    if (!resolvedRoomKey) {
+      client.emit('error', 'Room key could not be resolved');
       return;
     }
 
     const user = this.getUser(client);
-    const room = await this.eventsService.getRoomByKey(roomKey);
-    if (!room) {
-      client.emit('error', 'Group not found');
-      return;
-    }
-
     const hasAccess = await this.eventsService.userHasRoomAccess({
-      roomKey,
+      roomKey: resolvedRoomKey,
       userId: user.userId,
     });
     if (!hasAccess && user.role !== 'admin') {
@@ -220,7 +252,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     await client.join(room.key);
     const messages = await this.eventsService.getRecentMessages(room.key);
 
-    client.emit('room_joined', { room: { key: room.key, name: room.name }, messages });
+    client.emit('room_joined', { room: { key: room.key, name: room.name, groupId: room.groupId, conversationId: room.conversationId }, messages });
   }
 
   @SubscribeMessage('leave_room')

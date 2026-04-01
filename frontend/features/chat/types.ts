@@ -66,12 +66,16 @@ export type GroupParticipant = {
 
 export type GroupSummary = {
   key: string;
+  groupId?: string | null;
+  conversationId?: string | null;
   name: string;
   participantCount: number;
 };
 
 export type RoomItem = {
   key: string;
+  groupId?: string | null;
+  conversationId?: string | null;
   name: string;
   unread: number;
   lastMessage: string;
@@ -120,7 +124,7 @@ export type CallHistoryItem = {
   peerUserId: number;
   peerUsername: string;
   callType: 'voice' | 'video';
-  callStatus: 'missed' | 'completed' | 'incoming' | 'outgoing';
+  callStatus: 'missed' | 'completed' | 'incoming' | 'outgoing' | 'rejected';
   duration: number;
   createdAt: string;
 };

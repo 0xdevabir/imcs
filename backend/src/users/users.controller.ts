@@ -5,6 +5,7 @@ import {
   Controller,
   Delete,
   Get,
+  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -12,6 +13,7 @@ import {
   Request,
   Post,
   UseGuards,
+  forwardRef,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
@@ -20,11 +22,15 @@ import { RolesGuard } from '../auth/roles.guard';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { UsersService } from './users.service';
+import { EventsGateway } from '../events/events.gateway';
 
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    @Inject(forwardRef(() => EventsGateway)) private readonly eventsGateway: EventsGateway,
+  ) {}
 
   @Post()
   @Roles('admin')
@@ -133,12 +139,14 @@ export class UsersController {
 
   @Patch('me/username')
   async changeUsername(
-    @Request() req: { user: { userId: number } },
+    @Request() req: { user: { userId: number; username: string } },
     @Body() body: { newUsername: string },
   ) {
     if (!body.newUsername) throw new BadRequestException('newUsername is required');
+    const oldUsername = req.user.username;
     const result = await this.usersService.updateUsername(req.user.userId, body.newUsername);
     if (!result.success) throw new ConflictException(result.message ?? 'Username update failed');
+    this.eventsGateway.broadcastUsernameChanged(req.user.userId, oldUsername, result.username!);
     return result;
   }
 }

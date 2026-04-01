@@ -5,6 +5,7 @@ import { avatarGradient } from '@/lib/avatar';
 
 interface ChatWindowProps {
   profile: Profile;
+  roomKey: string;
   roomTitle: string;
   roomStatus: string;
   darkMode: boolean;
@@ -22,6 +23,7 @@ interface ChatWindowProps {
   headerActions: React.ReactNode;
   composer: React.ReactNode;
   onBack?: () => void;
+  onlineUsers?: { userId: number; username: string; status: string }[];
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -44,7 +46,7 @@ type MessageRow =
 
 export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps) {
   const grad = avatarGradient(props.roomTitle);
-  const isGroup = props.participants.length > 2;
+  const isGroup = !props.roomKey.startsWith('dm_');
   const [messageSearch, setMessageSearch] = useState('');
 
   const filteredRows = useMemo<MessageRow[]>(() => {
@@ -209,6 +211,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
                   onReply={props.onReply}
                   onStartEdit={props.onStartEdit}
                   onDelete={props.onDelete}
+                  onlineUsers={props.onlineUsers}
                 />
               )
             )}

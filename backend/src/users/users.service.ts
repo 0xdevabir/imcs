@@ -256,10 +256,24 @@ export class UsersService implements OnModuleInit {
     if (existing && existing.id !== userId) {
       return { success: false, message: 'Username is already taken.' };
     }
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: { username: trimmed },
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { username: trimmed },
+      });
+
+      await tx.chatRoomMember.updateMany({
+        where: { userId },
+        data: { username: trimmed },
+      });
+
+      await tx.chatRoom.updateMany({
+        where: { ownerUserId: userId },
+        data: { ownerUsername: trimmed },
+      });
     });
-    return { success: true, username: updated.username };
+
+    return { success: true, username: trimmed };
   }
 }

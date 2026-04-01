@@ -46,6 +46,7 @@ export type ChatMessage = {
   receipts: Receipt[];
   reactions?: MessageReaction[];
   replyTo?: ReplyPreview | null;
+  tempId?: string;
 };
 
 export type UserStatus = 'available' | 'dnd' | 'invisible';

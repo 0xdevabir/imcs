@@ -35,6 +35,7 @@ interface ContactsPanelProps {
   onContactClick: (userId: number, username: string) => void;
   darkMode: boolean;
   currentUserId: number;
+  searchError?: string | null;
 }
 
 export function ContactsPanel(props: ContactsPanelProps) {
@@ -169,6 +170,11 @@ export function ContactsPanel(props: ContactsPanelProps) {
             </button>
           )}
         </div>
+        {props.searchError && (
+          <p className={`px-4 py-1.5 text-xs ${props.darkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+            {props.searchError}
+          </p>
+        )}
       </div>
 
       {/* Content */}
@@ -382,8 +388,8 @@ function ContactRow(props: ContactRowProps) {
         </svg>
       </ActionBtn>
 
-      {/* Call / remove actions (show on hover) */}
-      <div className="hidden md:flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+      {/* Call / remove actions */}
+      <div className="hidden md:flex items-center gap-1">
         <ActionBtn title="Voice call" onClick={props.onVoiceCall} darkMode={props.darkMode}>
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
@@ -462,7 +468,9 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
   const [result, setResult] = useState<SearchedUser | null | 'not-found'>(null);
   const [searching, setSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null as unknown as HTMLInputElement);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const t = setTimeout(() => inputRef.current?.focus(), 50);
@@ -470,10 +478,10 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
   }, []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onCloseRef.current(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
 
   const handleQueryChange = (value: string) => {
     setQuery(value);

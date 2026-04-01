@@ -29,6 +29,8 @@ type AuthenticatedUser = {
 
 type UserStatus = 'available' | 'dnd' | 'invisible';
 
+const MAX_MESSAGE_LENGTH = 10000;
+
 type OnlineUser = {
   userId: number;
   username: string;
@@ -60,6 +62,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly callRooms = new Map<string, Map<number, string>>();
   // roomKey → { fromUserId, toUserId, callType, timestamp } for pending 1-to-1 calls
   private readonly pendingCalls = new Map<string, { fromUserId: number; toUserId: number; callType: 'voice' | 'video'; roomKey: string; timestamp: number }>();
+  // Timeout IDs for auto-expiring pending calls
+  private readonly pendingCallTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private static readonly PENDING_CALL_TTL_MS = 60000;
 
   constructor(
     private readonly jwtService: JwtService,
@@ -76,41 +81,49 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    let payload: SocketJwtPayload;
     try {
-      const payload = this.jwtService.verify<SocketJwtPayload>(token, {
+      payload = this.jwtService.verify<SocketJwtPayload>(token, {
         secret: process.env.JWT_SECRET ?? 'dev_secret_change_me',
       });
-
-      // Validate session jti — reject if the token belongs to an old session
-      if (payload.jti) {
-        const session = await this.usersService.getActiveSession(payload.sub);
-        if (session && session.jti !== payload.jti) {
-          client.emit('session_invalidated', {
-            message: 'Your session has been taken over by another device.',
-          });
-          client.disconnect();
-          return;
-        }
-      }
-
-      client.data.user = {
-        userId: payload.sub,
-        username: payload.username,
-        role: payload.role,
-      };
-
-      this.trackSocket(payload.sub, client.id);
-
-      // Auto-join all rooms the user belongs to so they receive messages from every room
-      const roomKeys = await this.eventsService.getRoomKeysForUser(payload.sub);
-      await Promise.all(roomKeys.map((key) => client.join(key)));
-
-      client.emit('connected', client.data.user);
-      this.emitOnlineUsers();
     } catch {
       client.emit('error', 'Unauthorized');
       client.disconnect();
+      return;
     }
+
+    // Validate session jti — reject if the token belongs to an old session
+    if (payload.jti) {
+      const session = await this.usersService.getActiveSession(payload.sub);
+      if (session && session.jti !== payload.jti) {
+        client.emit('session_invalidated', {
+          message: 'Your session has been taken over by another device.',
+        });
+        client.disconnect();
+        return;
+      }
+    }
+
+    client.data.user = {
+      userId: payload.sub,
+      username: payload.username,
+      role: payload.role,
+    };
+
+    this.trackSocket(payload.sub, client.id);
+
+    // Auto-join all rooms the user belongs to so they receive messages from every room
+    try {
+      const roomKeys = await this.eventsService.getRoomKeysForUser(payload.sub);
+      await Promise.all(roomKeys.map((key) => client.join(key)));
+    } catch {
+      client.emit('error', 'Failed to join rooms');
+      client.disconnect();
+      return;
+    }
+
+    client.emit('connected', client.data.user);
+    this.emitOnlineUsers();
   }
 
   /** Immediately push session_invalidated and disconnect all sockets for a user */
@@ -231,12 +244,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('send_message')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { roomKey?: string; content?: string; replyToMessageId?: string },
+    @MessageBody() body: { roomKey?: string; content?: string; replyToMessageId?: string; tempId?: string },
   ) {
     const roomKey = body?.roomKey?.trim();
     const content = body?.content?.trim();
     if (!roomKey || !content) {
       client.emit('error', 'roomKey and content are required');
+      return;
+    }
+    if (content.length > MAX_MESSAGE_LENGTH) {
+      client.emit('error', `Message content exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters`);
       return;
     }
     if (!this.isValidRoomKey(roomKey)) {
@@ -284,6 +301,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       content,
       sender: user,
       replyToMessageId: body.replyToMessageId?.trim(),
+      tempId: body.tempId,
     });
 
     for (const participantUserId of allowedParticipantUserIds) {
@@ -453,6 +471,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       timestamp: Date.now(),
     });
 
+    if (this.pendingCallTimeouts.has(callKey)) {
+      clearTimeout(this.pendingCallTimeouts.get(callKey));
+    }
+    const timeoutId = setTimeout(() => {
+      if (this.pendingCalls.has(callKey)) {
+        this.pendingCalls.delete(callKey);
+        this.pendingCallTimeouts.delete(callKey);
+      }
+    }, EventsGateway.PENDING_CALL_TTL_MS);
+    this.pendingCallTimeouts.set(callKey, timeoutId);
+
     for (const socketId of targetSocketIds) {
       this.server.to(socketId).emit('receive_call', payload);
     }
@@ -592,6 +621,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     this.pendingCalls.delete(callKey);
+    if (this.pendingCallTimeouts.has(callKey)) {
+      clearTimeout(this.pendingCallTimeouts.get(callKey));
+      this.pendingCallTimeouts.delete(callKey);
+    }
     this.forwardToUser(body?.targetUserId, 'accept_call', {
       fromUserId: user.userId,
       fromUsername: user.username,
@@ -610,6 +643,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
     const callKey = `${targetUserId}_${user.userId}`;
     this.pendingCalls.delete(callKey);
+    if (this.pendingCallTimeouts.has(callKey)) {
+      clearTimeout(this.pendingCallTimeouts.get(callKey));
+      this.pendingCallTimeouts.delete(callKey);
+    }
     this.forwardToUser(body?.targetUserId, 'reject_call', {
       fromUserId: user.userId,
       reason: body?.reason ?? 'Call rejected',
@@ -696,6 +733,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const content = body?.content?.trim();
     if (!messageId || !content) {
       client.emit('error', 'messageId and content are required');
+      return;
+    }
+    if (content.length > MAX_MESSAGE_LENGTH) {
+      client.emit('error', `Message content exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters`);
       return;
     }
 

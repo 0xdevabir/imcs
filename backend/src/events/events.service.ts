@@ -189,11 +189,11 @@ export class EventsService {
           },
         },
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: 'desc' },
       take: limit,
     });
 
-    return rows.map((row) => this.mapMessage(row));
+    return rows.reverse().map((row) => this.mapMessage(row));
   }
 
   async createMessage(input: {
@@ -201,6 +201,7 @@ export class EventsService {
     content: string;
     sender: Sender;
     replyToMessageId?: string;
+    tempId?: string;
   }) {
     const room = await this.ensureRoomMembership({
       roomKey: input.roomKey,
@@ -280,7 +281,7 @@ export class EventsService {
       });
     });
 
-    return this.mapMessage(created);
+    return { ...this.mapMessage(created), ...(input.tempId ? { tempId: input.tempId } : {}) };
   }
 
   async acknowledgeReceipt(input: {

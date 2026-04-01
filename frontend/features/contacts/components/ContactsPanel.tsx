@@ -35,6 +35,7 @@ interface ContactsPanelProps {
   onContactClick: (userId: number, username: string) => void;
   darkMode: boolean;
   currentUserId: number;
+  searchError?: string | null;
 }
 
 export function ContactsPanel(props: ContactsPanelProps) {
@@ -169,6 +170,11 @@ export function ContactsPanel(props: ContactsPanelProps) {
             </button>
           )}
         </div>
+        {props.searchError && (
+          <p className={`px-4 py-1.5 text-xs ${props.darkMode ? 'text-rose-400' : 'text-rose-500'}`}>
+            {props.searchError}
+          </p>
+        )}
       </div>
 
       {/* Content */}

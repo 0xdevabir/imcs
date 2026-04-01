@@ -163,6 +163,11 @@ export class GroupsService {
       throw new ConflictException('Group key already exists');
     }
 
+    const trimmedName = input.name?.trim() ?? '';
+    if (input.name !== undefined && trimmedName.length === 0) {
+      throw new ConflictException('Group name cannot be empty or whitespace');
+    }
+
     const participantUsernames = Array.from(
       new Set((input.participantUsernames ?? []).map((name) => name.trim()).filter(Boolean)),
     );
@@ -184,7 +189,7 @@ export class GroupsService {
       const room = await tx.chatRoom.create({
         data: {
           key,
-          name: input.name?.trim() || key,
+          name: trimmedName || key,
           ownerUserId: input.creator.userId,
           ownerUsername: input.creator.username,
         },

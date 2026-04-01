@@ -87,7 +87,7 @@ export default function ChatPage() {
     const stored = localStorage.getItem('imcs_theme');
     if (stored === 'dark') return true;
     if (stored === 'light') return false;
-    return true;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   const [sessionKicked, setSessionKicked] = useState(false);
   const [isNavModalOpen, setIsNavModalOpen] = useState(false);
@@ -124,6 +124,7 @@ export default function ChatPage() {
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [allUsers, setAllUsers] = useState<SearchedUser[]>([]);
   const [contactSearchQuery, setContactSearchQuery] = useState('');
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -147,11 +148,13 @@ export default function ChatPage() {
 
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef('general');
+  const profileRef = useRef<Profile | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingClearTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingReadReceiptsRef = useRef<Set<string>>(new Set()); // messageIds pending READ receipt
   const pendingOptimisticsRef = useRef<Map<string, ChatMessage>>(new Map()); // tempId -> optimistic message waiting for server confirmation
   const resolvedOptimisticsRef = useRef<Set<string>>(new Set()); // tempIds the server already confirmed before React flushed them
 
@@ -186,6 +189,23 @@ export default function ChatPage() {
   useEffect(() => {
     localStorage.setItem('imcs_theme', darkMode ? 'dark' : 'light');
   }, [darkMode]);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      if (socketRef.current && activeRoomRef.current) {
+        pendingReadReceiptsRef.current.forEach((messageId) => {
+          socketRef.current?.emit('read_receipt', { messageId, status: 'READ' });
+        });
+        pendingReadReceiptsRef.current.clear();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   useEffect(() => {
     if (!callStartedAt) return;
@@ -281,17 +301,29 @@ export default function ChatPage() {
         if (response.ok) {
           const users = (await response.json()) as SearchedUser[];
           setAllUsers(users);
+          setSearchError(null);
+        } else {
+          setSearchError('Search failed, try again');
         }
       } catch (err) {
         console.error('Failed to search users', err);
+        setSearchError('Search failed, try again');
       }
     };
     const timeout = setTimeout(searchUsers, 300);
     return () => clearTimeout(timeout);
-  }, [contactSearchQuery]);
+  }, [contactSearchQuery, profile]);
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
+  useEffect(() => {
+    if (socketRef.current && pendingReadReceiptsRef.current.size > 0) {
+      pendingReadReceiptsRef.current.forEach((messageId) => {
+        socketRef.current?.emit('read_receipt', { messageId, status: 'READ' });
+      });
+      pendingReadReceiptsRef.current.clear();
+    }
+  }, [activeRoomKey]);
   const prevScrollRoomRef = useRef(activeRoomKey);
   useEffect(() => {
     const switched = prevScrollRoomRef.current !== activeRoomKey;
@@ -520,7 +552,7 @@ export default function ChatPage() {
     const socket = io(SOCKET_URL, { transports: ['websocket'], withCredentials: true, auth: { token } });
     socketRef.current = socket;
     socket.on('connected', () => { setStatus('Connected with encrypted channel.'); socket.emit('join_room', { roomKey: activeRoomRef.current }); });
-    socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profile.userId)); });
+    socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profileRef.current?.userId)); });
     socket.on('room_joined', (payload: { room: { key: string; name?: string }; messages: ChatMessage[] }) => {
       if (payload.room.key !== activeRoomRef.current) return;
       setActiveRoomKey(payload.room.key);
@@ -531,7 +563,7 @@ export default function ChatPage() {
         const current = prev.find((room) => room.key === payload.room.key);
         let roomName = payload.room.name || current?.name || payload.room.key;
         if (payload.room.key.startsWith('dm_') && !current?.name) {
-          const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profile.userId));
+          const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profileRef.current?.userId));
           if (otherParticipant) {
             roomName = otherParticipant.sender.username;
           }
@@ -553,10 +585,12 @@ export default function ChatPage() {
       });
     });
     socket.on('receive_message', (message: ChatMessage) => {
-      const isFromMe = Number(message.sender.userId) === Number(profile.userId);
+      const isFromMe = Number(message.sender.userId) === Number(profileRef.current?.userId);
 
       let matchedTempId: string | null = null;
-      if (isFromMe) {
+      if (isFromMe && (message as ChatMessage & { tempId?: string }).tempId) {
+        matchedTempId = (message as ChatMessage & { tempId?: string }).tempId ?? null;
+      } else if (isFromMe) {
         const entries = Array.from(pendingOptimisticsRef.current.entries());
         for (const [tempId, optimistic] of entries) {
           if (optimistic.roomKey === message.roomKey && optimistic.content === message.content) {
@@ -568,7 +602,7 @@ export default function ChatPage() {
 
       setMessages((prev) => {
         if (prev.some((item) => item.id === message.id)) return prev;
-        if (matchedTempId) {
+        if (matchedTempId && pendingOptimisticsRef.current.has(matchedTempId)) {
           pendingOptimisticsRef.current.delete(matchedTempId);
           const idx = prev.findIndex((item) => item.id === matchedTempId);
           if (idx !== -1) {
@@ -585,7 +619,7 @@ export default function ChatPage() {
         let name = current?.name;
         if (!name) {
           if (message.roomKey.startsWith('dm_')) {
-            name = message.sender.userId !== profile.userId
+            name = message.sender.userId !== profileRef.current?.userId
               ? message.sender.username
               : current?.name ?? message.roomKey;
           } else if (!name || name === message.roomKey) {
@@ -595,7 +629,7 @@ export default function ChatPage() {
         const nextRoom: RoomItem = {
           key: message.roomKey,
           name,
-          unread: message.roomKey === activeRoomRef.current || message.sender.userId === profile.userId ? 0 : (current?.unread ?? 0) + 1,
+          unread: message.roomKey === activeRoomRef.current || message.sender.userId === profileRef.current?.userId ? 0 : (current?.unread ?? 0) + 1,
           lastMessage: summarizeMessage(message.content),
           lastAt: message.createdAt,
         };
@@ -607,11 +641,17 @@ export default function ChatPage() {
           return true;
         });
       });
-      if (message.sender.userId !== profile.userId) {
+      if (message.sender.userId !== profileRef.current?.userId) {
         socket.emit('read_receipt', { messageId: message.id, status: 'DELIVERED' });
-        setTimeout(() => {
-          socket.emit('read_receipt', { messageId: message.id, status: 'READ' });
-        }, 400);
+        pendingReadReceiptsRef.current.add(message.id);
+        if (document.hasFocus() && message.roomKey === activeRoomRef.current) {
+          setTimeout(() => {
+            if (pendingReadReceiptsRef.current.has(message.id)) {
+              pendingReadReceiptsRef.current.delete(message.id);
+              socket.emit('read_receipt', { messageId: message.id, status: 'READ' });
+            }
+          }, 800);
+        }
         setTypingUsers((current) => {
           const roomTyping = current[message.roomKey] ?? {};
           const nextRoomTyping = { ...roomTyping };
@@ -621,7 +661,7 @@ export default function ChatPage() {
       }
     });
     socket.on('typing', (payload: { roomKey: string; isTyping: boolean; user: { userId: number; username: string } }) => {
-      if (payload.user.userId === profile.userId) return;
+      if (payload.user.userId === profileRef.current?.userId) return;
       const timerKey = `${payload.roomKey}_${payload.user.userId}`;
       setTypingUsers((current) => {
         const roomTyping = current[payload.roomKey] ?? {};
@@ -669,7 +709,7 @@ export default function ChatPage() {
     // Legacy 1-to-1 accept_call (kept for backward compat)
     socket.on('accept_call', async (payload: { fromUserId: number; fromUsername?: string }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
-      if (payload.fromUserId === profile.userId) return;
+      if (payload.fromUserId === profileRef.current?.userId) return;
       if (processedPeerIdsRef.current.has(payload.fromUserId)) return;
       const username = payload.fromUsername ?? `User ${payload.fromUserId}`;
       setCallStatus('Negotiating...');
@@ -690,7 +730,7 @@ export default function ChatPage() {
       if (!isInCallRef.current) return; // Guard: only react if we've explicitly joined a call
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
       const { userId, username } = payload;
-      if (userId === profile.userId) return;
+      if (userId === profileRef.current?.userId) return;
       if (processedPeerIdsRef.current.has(userId)) return;
       processedPeerIdsRef.current.add(userId);
       setCallStatus('Connecting...');
@@ -708,7 +748,7 @@ export default function ChatPage() {
     // Who's already in the call when we join
     socket.on('call_participants', (payload: { participants: { userId: number; username: string }[] }) => {
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
-      const myUserId = profile.userId;
+      const myUserId = profileRef.current?.userId;
       for (const { userId, username } of payload.participants) {
         if (userId === myUserId) continue;
         if (processedPeerIdsRef.current.has(userId)) continue;
@@ -718,14 +758,14 @@ export default function ChatPage() {
     });
 
     socket.on('user_left_call', (payload: { userId: number }) => { 
-      if (payload.userId === profile.userId) return;
+      if (payload.userId === profileRef.current?.userId) return;
       removePeer(payload.userId); 
     });
 
     socket.on('offer', async (payload: { fromUserId: number; fromUsername?: string; sdp: RTCSessionDescriptionInit }) => {
       if (!isInCallRef.current) return; // Guard: only process offers after explicitly accepting a call
       if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
-      if (payload.fromUserId === profile.userId) return;
+      if (payload.fromUserId === profileRef.current?.userId) return;
       const { fromUserId, fromUsername, sdp } = payload;
       setCallStatus('Connecting...');
       try {
@@ -745,7 +785,7 @@ export default function ChatPage() {
     });
 
     socket.on('answer', async (payload: { fromUserId: number; sdp: RTCSessionDescriptionInit }) => {
-      if (payload.fromUserId === profile.userId) return;
+      if (payload.fromUserId === profileRef.current?.userId) return;
       const { fromUserId, sdp } = payload;
       const peer = peersRef.current.get(fromUserId);
       if (!peer) return;
@@ -760,7 +800,7 @@ export default function ChatPage() {
     });
 
     socket.on('ice_candidate', async (payload: { fromUserId: number; candidate: RTCIceCandidateInit }) => {
-      if (payload.fromUserId === profile.userId) return;
+      if (payload.fromUserId === profileRef.current?.userId) return;
       const { fromUserId, candidate } = payload;
       const peer = peersRef.current.get(fromUserId);
       if (peer?.remoteDescription) {
@@ -895,11 +935,21 @@ export default function ChatPage() {
     const mineResponse = await authFetch(`${API_URL}/groups/mine`);
     if (mineResponse.ok) {
       const mineData = (await mineResponse.json()) as GroupSummary[];
-      setGroups(mineData);
-      setRooms((prev) => mineData.map((g) => {
-        const existing = prev.find((r) => r.key === g.key);
-        return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-      }));
+      const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+      setGroups(dedupedMineData);
+      setRooms((prev) => {
+        const dmRooms = prev.filter(r => r.key.startsWith('dm_'));
+        const updatedGroups = dedupedMineData.map((g) => {
+          const existing = prev.find((r) => r.key === g.key);
+          return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+        });
+        const seenKeys = new Set<string>();
+        return [...updatedGroups, ...dmRooms].filter((r) => {
+          if (seenKeys.has(r.key)) return false;
+          seenKeys.add(r.key);
+          return true;
+        });
+      });
     }
     openRoom(key);
   };
@@ -971,7 +1021,7 @@ export default function ChatPage() {
       }
       return [...prev, optimisticMsg];
     });
-    socket.emit('send_message', { roomKey: activeRoomKey, content: draft, replyToMessageId: replyTo?.id });
+    socket.emit('send_message', { roomKey: activeRoomKey, content: draft.trim(), replyToMessageId: replyTo?.id, tempId });
     setDraft(''); setReplyTo(null); socket.emit('typing', { roomKey: activeRoomKey, isTyping: false });
   };
 
@@ -984,7 +1034,11 @@ export default function ChatPage() {
       if (response.ok) {
         const olderMessages = (await response.json()) as ChatMessage[];
         if (olderMessages.length > 0) {
-          setMessages(prev => [...olderMessages.reverse(), ...prev]);
+          setMessages(prev => {
+            const existingIds = new Set(prev.map(m => m.id));
+            const newMessages = olderMessages.reverse().filter(m => !existingIds.has(m.id));
+            return [...newMessages, ...prev];
+          });
           setHasMoreMessages(olderMessages.length === 50);
         } else {
           setHasMoreMessages(false);
@@ -1004,7 +1058,10 @@ export default function ChatPage() {
     typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomRef.current, isTyping: false }), 650);
   };
 
-  const handleMentionInsert = (username: string) => { setDraft((current) => current.replace(/@([a-zA-Z0-9_]*)$/, `@${username} `)); };
+  const handleMentionInsert = (username: string) => {
+    const escapedUsername = username.replace(/\$/g, '$$');
+    setDraft((current) => current.replace(/@([a-zA-Z0-9_]*)$/, `@${escapedUsername} `));
+  };
 
   const uploadFile = async (file: File) => {
     if (!socketRef.current) { setStatus('Socket unavailable'); return; }
@@ -1183,15 +1240,26 @@ export default function ChatPage() {
     // If room doesn't exist on server, create it (do this after state update)
     try {
       const response = await authFetch(`${API_URL}/groups/${roomKey}`);
-      if (response.status === 404) {
-        await authFetch(`${API_URL}/groups`, {
+      if (response.ok) {
+        // Room exists, do nothing
+      } else if (response.status === 404) {
+        const createResponse = await authFetch(`${API_URL}/groups`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
         });
+        if (!createResponse.ok) {
+          setStatus('Failed to open chat');
+          return;
+        }
+      } else {
+        setStatus('Failed to open chat');
+        return;
       }
     } catch (err) {
       console.error('Failed to ensure DM room exists', err);
+      setStatus('Failed to open chat');
+      return;
     }
     
     socketRef.current?.emit('join_room', { roomKey });
@@ -1367,6 +1435,7 @@ export default function ChatPage() {
 
   const handleLogout = async () => {
     await authFetch(`${API_URL}/auth/logout`, { method: 'POST' }).catch(() => undefined);
+    setProfile(null);
     clearAuthTokenCookie();
     window.location.href = '/login';
   };
@@ -1503,6 +1572,7 @@ export default function ChatPage() {
                     onContactClick={handleContactClick}
                     darkMode={darkMode}
                     currentUserId={profile?.userId ?? 0}
+                    searchError={searchError}
                   />
                 </div>
                 {/* Settings — profile overview in middle panel */}
@@ -1546,6 +1616,7 @@ export default function ChatPage() {
                     onContactClick={handleContactClick}
                     darkMode={darkMode}
                     currentUserId={profile?.userId ?? 0}
+                    searchError={searchError}
                   />
                 ) : activeSection === 'meetings' ? (
                   <MeetingsPanel darkMode={darkMode} />

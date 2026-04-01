@@ -175,6 +175,9 @@ export default function ChatPage() {
   // Tracks whether the user has explicitly joined/accepted a call (not just received an invite)
   const isInCallRef = useRef(false);
   const pendingDMRoomsRef = useRef<Set<string>>(new Set());
+  const roomsRef = useRef<RoomItem[]>([]);
+  const pendingRoomCreationsRef = useRef<Set<string>>(new Set());
+  const groupFetchVersionRef = useRef<number>(0);
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -316,6 +319,7 @@ export default function ChatPage() {
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
+  useEffect(() => { roomsRef.current = rooms; }, [rooms]);
   useEffect(() => {
     if (socketRef.current && pendingReadReceiptsRef.current.size > 0) {
       pendingReadReceiptsRef.current.forEach((messageId) => {
@@ -820,6 +824,7 @@ export default function ChatPage() {
       setCallStatus(payload.reason ?? 'Call ended');
     });
     socket.on('group_created', async (payload: GroupSummary) => {
+      if (pendingRoomCreationsRef.current.has(payload.key)) return; // room is being created by ensureDirectRoomForTarget
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
       setRooms((prev) => {
         if (prev.some((r) => r.key === payload.key)) return prev;
@@ -832,20 +837,24 @@ export default function ChatPage() {
       });
     });
     socket.on('group_member_added', async () => {
+      const currentVersion = ++groupFetchVersionRef.current;
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
+        if (currentVersion !== groupFetchVersionRef.current) return; // skip if a newer fetch started
         const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
         setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const groupKeys = new Set(dedupedMineData.map((g) => g.key));
-          const updatedGroups = dedupedMineData.map((g) => {
-            const existing = prev.find((r) => r.key === g.key);
-            return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-          });
+          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
+          const updatedGroups = dedupedMineData
+            .filter(g => nonDMKeys.has(g.key))
+            .map((g) => {
+              const existing = prev.find((r) => r.key === g.key);
+              return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+            });
           const seenKeys = new Set<string>();
-          const deduped = [...dmRooms, ...updatedGroups].filter((r) => {
+          const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
             if (seenKeys.has(r.key)) return false;
             seenKeys.add(r.key);
             return true;
@@ -855,19 +864,22 @@ export default function ChatPage() {
       }
     });
     socket.on('group_member_removed', async () => {
+      const currentVersion = ++groupFetchVersionRef.current;
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
+        if (currentVersion !== groupFetchVersionRef.current) return; // skip if a newer fetch started
         const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
         setGroups(dedupedMineData);
-        setRooms(prev => {
-          const existingKeys = new Set(dedupedMineData.map(g => g.key));
-          const filtered = prev.filter(r => existingKeys.has(r.key) || r.key.startsWith('dm_'));
-          const updatedGroups = dedupedMineData.map((g) => {
-            const existing = filtered.find(r => r.key === g.key);
-            return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-          });
-          const dmRooms = filtered.filter(r => !dedupedMineData.some(g => g.key === r.key));
+        setRooms((prev) => {
+          const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
+          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
+          const updatedGroups = dedupedMineData
+            .filter(g => nonDMKeys.has(g.key))
+            .map((g) => {
+              const existing = prev.find((r) => r.key === g.key);
+              return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+            });
           const seenKeys = new Set<string>();
           const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
             if (seenKeys.has(r.key)) return false;
@@ -1094,11 +1106,12 @@ export default function ChatPage() {
     if (!profile) return null;
     const roomKey = `dm_${Math.min(targetUserId, profile.userId)}_${Math.max(targetUserId, profile.userId)}`;
     
-    if (rooms.some((r) => r.key === roomKey) || pendingDMRoomsRef.current.has(roomKey)) {
+    if (roomsRef.current.some((r) => r.key === roomKey) || pendingDMRoomsRef.current.has(roomKey) || pendingRoomCreationsRef.current.has(roomKey)) {
       return roomKey;
     }
 
     pendingDMRoomsRef.current.add(roomKey);
+    pendingRoomCreationsRef.current.add(roomKey);
     try {
       const createResponse = await authFetch(`${API_URL}/groups`, {
         method: 'POST',
@@ -1113,10 +1126,16 @@ export default function ChatPage() {
         const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
         setGroups(dedupedMineData);
         setRooms((prev) => {
+          const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
+          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
+          const updatedGroups = dedupedMineData
+            .filter(g => nonDMKeys.has(g.key))
+            .map((g) => {
+              const existing = prev.find((r) => r.key === g.key);
+              return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+            });
           const seenKeys = new Set<string>();
-          const existing = prev.find((r) => r.key === roomKey);
-          const newRoom: RoomItem = { key: roomKey, name: targetUsername || roomKey, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
-          const deduped = [...prev, newRoom].filter((r) => {
+          const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
             if (seenKeys.has(r.key)) return false;
             seenKeys.add(r.key);
             return true;
@@ -1126,6 +1145,7 @@ export default function ChatPage() {
       }
     } finally {
       pendingDMRoomsRef.current.delete(roomKey);
+      pendingRoomCreationsRef.current.delete(roomKey);
     }
 
     return roomKey;

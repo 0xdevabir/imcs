@@ -353,7 +353,7 @@ function ChatListItem(props: ItemProps) {
                   e.stopPropagation();
                   props.onTogglePin(props.room.key);
                 }}
-                className={`opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
+                className={`opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
                   props.isPinned
                     ? props.darkMode
                       ? 'text-amber-500 hover:text-amber-400'

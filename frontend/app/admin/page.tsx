@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { API_URL, authFetch, getAuthToken } from '@/lib/config';
+import { SelectDropdown } from '@/components/ui/SelectDropdown';
 
 interface Profile { userId: number; username: string; role: 'admin' | 'user'; }
 interface UserItem { userId: number; username: string; role: 'admin' | 'user'; }
@@ -502,10 +503,16 @@ export default function AdminPage() {
 
                     <div>
                       <label className={`block text-xs font-semibold mb-2 ${dm ? 'text-slate-400' : 'text-slate-600'}`}>Role</label>
-                      <select className={selectBase} value={newRole} onChange={(e) => setNewRole(e.target.value as 'admin' | 'user')} disabled={creating}>
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
-                      </select>
+                      <SelectDropdown
+                        value={newRole}
+                        onChange={(val) => setNewRole(val as 'admin' | 'user')}
+                        options={[
+                          { value: 'user', label: 'User' },
+                          { value: 'admin', label: 'Admin' },
+                        ]}
+                        disabled={creating}
+                        darkMode={dm}
+                      />
                     </div>
 
                     <button
@@ -547,15 +554,23 @@ export default function AdminPage() {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className={`block text-xs font-semibold mb-2 ${dm ? 'text-slate-400' : 'text-slate-600'}`}>From</label>
-                          <select className={selectBase} value={fromUsername} onChange={(e) => setFromUsername(e.target.value)} disabled={savingRule}>
-                            {users.map((u) => <option key={u.userId} value={u.username}>{u.username}</option>)}
-                          </select>
+                          <SelectDropdown
+                            value={fromUsername}
+                            onChange={setFromUsername}
+                            options={users.map((u) => ({ value: u.username, label: u.username }))}
+                            disabled={savingRule}
+                            darkMode={dm}
+                          />
                         </div>
                         <div>
                           <label className={`block text-xs font-semibold mb-2 ${dm ? 'text-slate-400' : 'text-slate-600'}`}>To</label>
-                          <select className={selectBase} value={toUsername} onChange={(e) => setToUsername(e.target.value)} disabled={savingRule}>
-                            {users.map((u) => <option key={u.userId} value={u.username}>{u.username}</option>)}
-                          </select>
+                          <SelectDropdown
+                            value={toUsername}
+                            onChange={setToUsername}
+                            options={users.map((u) => ({ value: u.username, label: u.username }))}
+                            disabled={savingRule}
+                            darkMode={dm}
+                          />
                         </div>
                       </div>
 
@@ -638,83 +653,146 @@ export default function AdminPage() {
                     <p className="text-sm">{userSearch.trim() ? 'No users match your search' : 'No users yet — create one above'}</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className={`text-xs font-semibold uppercase tracking-wider border-b ${dm ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'}`}>
-                          <th className="px-6 py-3.5 text-left">User</th>
-                          <th className="px-6 py-3.5 text-left">Role</th>
-                          <th className="px-6 py-3.5 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className={`divide-y ${dm ? 'divide-slate-800/60' : 'divide-slate-100'}`}>
-                        {filteredUsers.map((user) => {
-                          const isMe = user.username === profile?.username;
-                          const isUpdating = updatingRole === user.username;
-                          return (
-                            <tr key={user.userId} className={`transition-colors ${dm ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50/80'}`}>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center gap-3">
-                                  <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(user.username)} flex items-center justify-center text-xs font-bold text-white shadow-sm shrink-0`}>
-                                    {user.username.charAt(0).toUpperCase()}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <span className={`font-semibold ${dm ? 'text-slate-100' : 'text-slate-900'}`}>{user.username}</span>
-                                      {isMe && (
-                                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${dm ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>You</span>
-                                      )}
+                  <>
+                    {/* Desktop Table */}
+                    <div className="hidden md:block overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className={`text-xs font-semibold uppercase tracking-wider border-b ${dm ? 'border-slate-800/80 text-slate-500' : 'border-slate-100 text-slate-400'}`}>
+                            <th className="px-6 py-3.5 text-left">User</th>
+                            <th className="px-6 py-3.5 text-left">Role</th>
+                            <th className="px-6 py-3.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${dm ? 'divide-slate-800/60' : 'divide-slate-100'}`}>
+                          {filteredUsers.map((user) => {
+                            const isMe = user.username === profile?.username;
+                            const isUpdating = updatingRole === user.username;
+                            return (
+                              <tr key={user.userId} className={`transition-colors ${dm ? 'hover:bg-slate-800/30' : 'hover:bg-slate-50/80'}`}>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-3">
+                                    <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(user.username)} flex items-center justify-center text-xs font-bold text-white shadow-sm shrink-0`}>
+                                      {user.username.charAt(0).toUpperCase()}
                                     </div>
-                                    <p className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`}>ID #{user.userId}</p>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className={`font-semibold ${dm ? 'text-slate-100' : 'text-slate-900'}`}>{user.username}</span>
+                                        {isMe && (
+                                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${dm ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>You</span>
+                                        )}
+                                      </div>
+                                      <p className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`} title={`User ID: ${user.userId}`}>ID #{user.userId}</p>
+                                    </div>
                                   </div>
+                                </td>
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center gap-2">
+                                    <SelectDropdown
+                                      value={user.role}
+                                      onChange={(val) => updateRole(user.username, val as 'admin' | 'user')}
+                                      options={[
+                                        { value: 'user', label: 'User' },
+                                        { value: 'admin', label: 'Admin' },
+                                      ]}
+                                      disabled={isMe || isUpdating}
+                                      darkMode={dm}
+                                      className="w-28"
+                                    />
+                                    {isUpdating && <div className="w-3.5 h-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  {!isMe && (
+                                    <button
+                                      type="button"
+                                      title="Delete user"
+                                      onClick={() => setDeleteModal({ username: user.username, confirmText: '' })}
+                                      className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-all ${
+                                        dm
+                                          ? 'border-slate-700/60 text-slate-500 hover:border-rose-700/60 hover:text-rose-400 hover:bg-rose-900/10'
+                                          : 'border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-600 hover:bg-rose-50'
+                                      }`}
+                                    >
+                                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Cards */}
+                    <div className="md:hidden divide-y divide-slate-800/60 dark:divide-slate-800/60">
+                      {filteredUsers.map((user) => {
+                        const isMe = user.username === profile?.username;
+                        const isUpdating = updatingRole === user.username;
+                        return (
+                          <div key={user.userId} className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${getAvatarColor(user.username)} flex items-center justify-center text-sm font-bold text-white shadow-sm shrink-0`}>
+                                  {user.username.charAt(0).toUpperCase()}
                                 </div>
-                              </td>
-                              <td className="px-6 py-4">
-                                <div className="flex items-center gap-2">
-                                  <select
-                                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold outline-none transition-all cursor-pointer focus:ring-2 focus:ring-blue-500/20 ${
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`font-semibold ${dm ? 'text-slate-100' : 'text-slate-900'}`}>{user.username}</span>
+                                    {isMe && (
+                                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${dm ? 'bg-blue-900/50 text-blue-400' : 'bg-blue-100 text-blue-600'}`}>You</span>
+                                    )}
+                                    <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                                       user.role === 'admin'
-                                        ? dm
-                                          ? 'border-amber-700/50 bg-amber-900/20 text-amber-400 focus:border-amber-600'
-                                          : 'border-amber-200 bg-amber-50 text-amber-700 focus:border-amber-400'
-                                        : dm
-                                          ? 'border-slate-700 bg-slate-800 text-slate-300 focus:border-slate-600'
-                                          : 'border-slate-200 bg-white text-slate-700 focus:border-slate-400'
-                                    }`}
-                                    value={user.role}
-                                    disabled={isMe || isUpdating}
-                                    onChange={(e) => updateRole(user.username, e.target.value as 'admin' | 'user')}
-                                  >
-                                    <option value="user">User</option>
-                                    <option value="admin">Admin</option>
-                                  </select>
-                                  {isUpdating && <div className="w-3.5 h-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+                                        ? dm ? 'bg-amber-900/30 text-amber-400' : 'bg-amber-100 text-amber-700'
+                                        : dm ? 'bg-slate-700 text-slate-400' : 'bg-slate-100 text-slate-600'
+                                    }`}>
+                                      {user.role === 'admin' ? 'Admin' : 'User'}
+                                    </span>
+                                  </div>
+                                  <p className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`}>ID #{user.userId}</p>
                                 </div>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                {!isMe && (
-                                  <button
-                                    type="button"
-                                    title="Delete user"
-                                    onClick={() => setDeleteModal({ username: user.username, confirmText: '' })}
-                                    className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-all ${
-                                      dm
-                                        ? 'border-slate-700/60 text-slate-500 hover:border-rose-700/60 hover:text-rose-400 hover:bg-rose-900/10'
-                                        : 'border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-600 hover:bg-rose-50'
-                                    }`}
-                                  >
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                    </svg>
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                              </div>
+                              {!isMe && (
+                                <button
+                                  type="button"
+                                  title="Delete user"
+                                  onClick={() => setDeleteModal({ username: user.username, confirmText: '' })}
+                                  className={`inline-flex items-center justify-center w-9 h-9 rounded-lg border transition-all ${
+                                    dm
+                                      ? 'border-slate-700/60 text-slate-500 hover:border-rose-700/60 hover:text-rose-400 hover:bg-rose-900/10'
+                                      : 'border-slate-200 text-slate-400 hover:border-rose-200 hover:text-rose-600 hover:bg-rose-50'
+                                  }`}
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                  </svg>
+                                </button>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className={`text-xs ${dm ? 'text-slate-500' : 'text-slate-400'}`}>Role:</span>
+                              <SelectDropdown
+                                value={user.role}
+                                onChange={(val) => updateRole(user.username, val as 'admin' | 'user')}
+                                options={[
+                                  { value: 'user', label: 'User' },
+                                  { value: 'admin', label: 'Admin' },
+                                ]}
+                                disabled={isMe || isUpdating}
+                                darkMode={dm}
+                                className="flex-1 max-w-[140px]"
+                              />
+                              {isUpdating && <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
 

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EventsGateway } from '../events/events.gateway';
@@ -27,6 +28,7 @@ type ParticipantView = {
 
 type GroupSummary = {
   key: string;
+  groupId: string | null;
   name: string;
   ownerUserId: number | null;
   ownerUsername: string | null;
@@ -192,6 +194,7 @@ export class GroupsService {
           name: trimmedName || key,
           ownerUserId: input.creator.userId,
           ownerUsername: input.creator.username,
+          groupId: `grp_${randomUUID()}`,
         },
       });
 
@@ -226,6 +229,7 @@ export class GroupsService {
 
     const groupPayload = {
       key: created.key,
+      groupId: created.groupId,
       name: created.name,
       ownerUserId: created.ownerUserId,
       ownerUsername: created.ownerUsername,
@@ -250,9 +254,7 @@ export class GroupsService {
   }
 
   private getSocketIdsForUser(userId: number): string[] {
-    const socketsByUserId = (this.eventsGateway as unknown as { socketsByUserId: Map<number, Set<string>> }).socketsByUserId;
-    const socketIds = socketsByUserId?.get(userId);
-    return socketIds ? [...socketIds] : [];
+    return this.eventsGateway.getSocketIdsForUser(userId);
   }
 
   async listGroupsForUser(user: RequestUser) {
@@ -283,6 +285,8 @@ export class GroupsService {
       }
       return {
         key: group.key,
+        groupId: group.groupId,
+        conversationId: group.conversationId,
         name,
         ownerUserId: group.ownerUserId,
         ownerUsername: group.ownerUsername,
@@ -298,6 +302,8 @@ export class GroupsService {
     return {
       group: {
         key: group.key,
+        groupId: group.groupId,
+        conversationId: group.conversationId,
         name: group.name,
         ownerUserId: group.ownerUserId,
         ownerUsername: group.ownerUsername,
@@ -337,6 +343,8 @@ export class GroupsService {
     const allMemberIds = [...group.members.map(m => m.userId), user.userId];
     this.emitGroupUpdate('group_member_added', {
       key: group.key,
+      groupId: group.groupId,
+      conversationId: group.conversationId,
       name: group.name,
       addedUser: user.username
     }, allMemberIds);
@@ -376,6 +384,8 @@ export class GroupsService {
 
     this.emitGroupUpdate('group_member_removed', { 
       key: group.key, 
+      groupId: group.groupId,
+      conversationId: group.conversationId,
       removedUser: user.username 
     }, group.members.map(m => m.userId));
 

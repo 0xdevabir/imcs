@@ -84,7 +84,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   );
 
   return (
-    <div className={`message-appear group flex items-end gap-2 py-0.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`message-appear flex items-end gap-2 py-0.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
       {/* Sender avatar (non-mine, group chats) */}
       {!isMine && isGroup && (
         <div className={`flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-xs font-bold text-white self-end mb-5`}>
@@ -103,7 +103,7 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
         )}
 
         {/* Bubble */}
-        <div className="relative">
+        <div className="relative group">
           {/* Hover action bar */}
           <div className={`absolute ${isMine ? 'right-0' : 'left-0'} -top-9 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-150 z-10 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto`}>
             <div className={`flex items-center gap-0.5 rounded-xl px-1.5 py-1 shadow-lg ring-1 ${

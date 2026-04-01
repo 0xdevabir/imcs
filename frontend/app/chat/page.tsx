@@ -118,7 +118,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
-  const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
+  const [typingUsers, setTypingUsers] = useState<Record<string, Record<number, string>>>({});
 
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
 
@@ -150,7 +150,7 @@ export default function ChatPage() {
   const activeRoomRef = useRef('general');
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const typingClearTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const typingClearTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingOptimisticsRef = useRef<string[]>([]); // FIFO queue of __temp__ IDs waiting for server confirmation
@@ -194,10 +194,11 @@ export default function ChatPage() {
   }, [callStartedAt]);
 
   const typingIndicator = useMemo(() => {
-    const values = Object.values(typingUsers);
+    const roomTyping = typingUsers[activeRoomKey] ?? {};
+    const values = Object.values(roomTyping);
     if (values.length === 0) return '';
     return `${values.join(', ')} typing...`;
-  }, [typingUsers]);
+  }, [typingUsers, activeRoomKey]);
 
   const activeRoomName = useMemo(() => {
     if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
@@ -296,7 +297,7 @@ export default function ChatPage() {
     const switched = prevScrollRoomRef.current !== activeRoomKey;
     prevScrollRoomRef.current = activeRoomKey;
     messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
-  }, [messages, activeRoomKey, typingIndicator]);
+  }, [messages, activeRoomKey]);
 
   useEffect(() => {
     if (!profile) return;
@@ -304,6 +305,7 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (!mineResponse.ok) return;
       let mineData = (await mineResponse.json()) as GroupSummary[];
+      mineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
       if (mineData.length === 0) {
         await authFetch(`${API_URL}/groups`, {
           method: 'POST',
@@ -312,6 +314,7 @@ export default function ChatPage() {
         });
         const afterCreate = await authFetch(`${API_URL}/groups/mine`);
         if (afterCreate.ok) mineData = (await afterCreate.json()) as GroupSummary[];
+        mineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
       }
       setGroups(mineData);
       setRooms((prev) => mineData.map((group) => {
@@ -519,6 +522,7 @@ export default function ChatPage() {
     socket.on('connected', () => { setStatus('Connected with encrypted channel.'); socket.emit('join_room', { roomKey: activeRoomRef.current }); });
     socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profile.userId)); });
     socket.on('room_joined', (payload: { room: { key: string; name?: string }; messages: ChatMessage[] }) => {
+      if (payload.room.key !== activeRoomRef.current) return;
       setActiveRoomKey(payload.room.key);
       setMessages(payload.messages);
       setTypingUsers({});
@@ -526,8 +530,8 @@ export default function ChatPage() {
       setRooms((prev) => {
         const current = prev.find((room) => room.key === payload.room.key);
         let roomName = payload.room.name || current?.name || payload.room.key;
-        // For DMs, derive name from the other participant in messages
-        if (payload.room.key.startsWith('dm_')) {
+        // For DMs, only derive name from messages if we don't already have a stable name
+        if (payload.room.key.startsWith('dm_') && !current?.name) {
           const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profile.userId));
           if (otherParticipant) {
             roomName = otherParticipant.sender.username;
@@ -568,13 +572,14 @@ export default function ChatPage() {
       setRooms((prev) => {
         const current = prev.find((room) => room.key === message.roomKey);
         let name = current?.name;
-        // For DM rooms, always use the other participant's name (correct it if needed)
-        if (message.roomKey.startsWith('dm_')) {
-          name = message.sender.userId !== profile.userId
-            ? message.sender.username
-            : current?.name ?? message.roomKey;
-        } else if (!name || name === message.roomKey) {
-          name = current?.name ?? message.roomKey;
+        if (!name) {
+          if (message.roomKey.startsWith('dm_')) {
+            name = message.sender.userId !== profile.userId
+              ? message.sender.username
+              : current?.name ?? message.roomKey;
+          } else if (!name || name === message.roomKey) {
+            name = current?.name ?? message.roomKey;
+          }
         }
         const nextRoom: RoomItem = {
           key: message.roomKey,
@@ -587,19 +592,34 @@ export default function ChatPage() {
       });
       if (message.sender.userId !== profile.userId) {
         socket.emit('read_receipt', { messageId: message.id, status: 'DELIVERED' });
-        setTimeout(() => socket.emit('read_receipt', { messageId: message.id, status: 'READ' }), 350);
+        setTimeout(() => {
+          socket.emit('read_receipt', { messageId: message.id, status: 'READ' });
+        }, 400);
+        setTypingUsers((current) => {
+          const roomTyping = current[message.roomKey] ?? {};
+          const nextRoomTyping = { ...roomTyping };
+          delete nextRoomTyping[message.sender.userId];
+          return { ...current, [message.roomKey]: nextRoomTyping };
+        });
       }
     });
     socket.on('typing', (payload: { roomKey: string; isTyping: boolean; user: { userId: number; username: string } }) => {
-      if (payload.roomKey !== activeRoomRef.current || payload.user.userId === profile.userId) return;
+      if (payload.user.userId === profile.userId) return;
+      const timerKey = `${payload.roomKey}_${payload.user.userId}`;
       setTypingUsers((current) => {
-        const next = { ...current };
-        payload.isTyping ? (next[payload.user.userId] = payload.user.username) : delete next[payload.user.userId];
-        return next;
+        const roomTyping = current[payload.roomKey] ?? {};
+        const nextRoomTyping = { ...roomTyping };
+        payload.isTyping ? (nextRoomTyping[payload.user.userId] = payload.user.username) : delete nextRoomTyping[payload.user.userId];
+        return { ...current, [payload.roomKey]: nextRoomTyping };
       });
-      if (typingClearTimersRef.current[payload.user.userId]) clearTimeout(typingClearTimersRef.current[payload.user.userId]);
-      typingClearTimersRef.current[payload.user.userId] = setTimeout(() => {
-        setTypingUsers((current) => { const next = { ...current }; delete next[payload.user.userId]; return next; });
+      if (typingClearTimersRef.current[timerKey]) clearTimeout(typingClearTimersRef.current[timerKey]);
+      typingClearTimersRef.current[timerKey] = setTimeout(() => {
+        setTypingUsers((current) => {
+          const roomTyping = current[payload.roomKey] ?? {};
+          const nextRoomTyping = { ...roomTyping };
+          delete nextRoomTyping[payload.user.userId];
+          return { ...current, [payload.roomKey]: nextRoomTyping };
+        });
       }, 1200);
     });
     socket.on('read_receipt', (payload: { messageId: string; userId: number; status: 'DELIVERED' | 'READ'; username: string }) => {
@@ -750,15 +770,22 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
+        const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+        setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const groupKeys = new Set(mineData.map((g) => g.key));
-          const updatedGroups = mineData.map((g) => {
+          const groupKeys = new Set(dedupedMineData.map((g) => g.key));
+          const updatedGroups = dedupedMineData.map((g) => {
             const existing = prev.find((r) => r.key === g.key);
             return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
           });
-          return [...dmRooms, ...updatedGroups].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
+          const seenKeys = new Set<string>();
+          const deduped = [...dmRooms, ...updatedGroups].filter((r) => {
+            if (seenKeys.has(r.key)) return false;
+            seenKeys.add(r.key);
+            return true;
+          });
+          return deduped;
         });
       }
     });
@@ -766,16 +793,23 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
+        const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+        setGroups(dedupedMineData);
         setRooms(prev => {
-          const existingKeys = new Set(mineData.map(g => g.key));
+          const existingKeys = new Set(dedupedMineData.map(g => g.key));
           const filtered = prev.filter(r => existingKeys.has(r.key) || r.key.startsWith('dm_'));
-          const updatedGroups = mineData.map((g) => {
+          const updatedGroups = dedupedMineData.map((g) => {
             const existing = filtered.find(r => r.key === g.key);
             return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
           });
-          const dmRooms = filtered.filter(r => !mineData.some(g => g.key === r.key));
-          return [...updatedGroups, ...dmRooms].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
+          const dmRooms = filtered.filter(r => !dedupedMineData.some(g => g.key === r.key));
+          const seenKeys = new Set<string>();
+          const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
+            if (seenKeys.has(r.key)) return false;
+            seenKeys.add(r.key);
+            return true;
+          });
+          return deduped;
         });
       }
     });
@@ -1347,8 +1381,8 @@ export default function ChatPage() {
   }
 
   return (
-    <main className={`${darkMode ? 'dark' : ''}`}>
-      <div className={`h-[calc(100vh-60px)] md:h-screen w-full ${darkMode ? 'bg-slate-950 text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
+    <main className={`${darkMode ? 'dark bg-[#111b21]' : 'bg-[#f0f2f5]'}`}>
+      <div className={`h-[100dvh] pb-[calc(56px+env(safe-area-inset-bottom))] md:h-screen md:pb-0 w-full ${darkMode ? 'bg-[#111b21] text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
         <div className="flex h-full">
           {/* Left nav sidebar — always visible on desktop */}
           <Sidebar
@@ -1453,7 +1487,7 @@ export default function ChatPage() {
 
             {/* Mobile-only: non-chat section full-screen views with sliding animation */}
             {activeSection !== 'chats' && (
-              <div className={`flex md:hidden absolute inset-0 z-10 flex-col ${
+              <div className={`flex md:hidden absolute inset-0 z-10 w-full min-w-0 flex-col ${
                 mobileTransitioning
                   ? slideDir === 1
                     ? 'animate-slide-in-right'
@@ -1707,7 +1741,7 @@ export default function ChatPage() {
 
                 {/* Group info / settings slide-in panel - only show for groups, not DMs */}
                 <div
-                  className={`hidden md:flex flex-col w-72 border-l shrink-0 overflow-hidden absolute right-0 top-0 bottom-0 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+                  className={`flex flex-col w-full md:w-72 border-l shrink-0 overflow-hidden absolute right-0 top-0 bottom-0 z-20 transform transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
                     showGroupInfo
                       ? 'translate-x-0 opacity-100'
                       : 'translate-x-full opacity-0 pointer-events-none'
@@ -1860,7 +1894,7 @@ export default function ChatPage() {
         {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
           className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
-            darkMode ? 'border-white/5 bg-slate-950/98' : 'border-slate-200 bg-white'
+            darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
           }`}
           style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
@@ -1906,9 +1940,19 @@ export default function ChatPage() {
               label: 'Profile',
               icon: (active: boolean, profileData?: { username: string }) => {
                 const name = profileData?.username || 'U';
-                const grad = `from-blue-500 to-indigo-600`;
+                const grad = darkMode ? 'from-[#00a884] to-emerald-400' : 'from-blue-500 to-indigo-600';
                 return (
-                  <div className={`w-6 h-6 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-[10px] font-bold text-white`}>
+                  <div
+                    className={`w-6 h-6 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-[10px] font-bold text-white ${
+                      darkMode
+                        ? active
+                          ? 'ring-2 ring-[#00a884]/55 ring-offset-2 ring-offset-[#202c33] shadow-[0_0_0_1px_rgba(255,255,255,0.08)]'
+                          : 'ring-1 ring-white/12'
+                        : active
+                          ? 'ring-2 ring-blue-500/35 ring-offset-2 ring-offset-white'
+                          : 'ring-1 ring-slate-200'
+                    }`}
+                  >
                     {name.charAt(0).toUpperCase()}
                   </div>
                 );
@@ -1939,17 +1983,17 @@ export default function ChatPage() {
                 }}
                 className={`relative flex-1 flex flex-col items-center justify-center gap-0.5 pt-2 pb-1 text-[10px] font-semibold tracking-tight transition-colors duration-150 ${
                   isActive
-                    ? darkMode ? 'text-blue-400' : 'text-blue-600'
-                    : darkMode ? 'text-slate-600' : 'text-slate-400'
+                    ? darkMode ? 'text-[#00a884]' : 'text-blue-600'
+                    : darkMode ? 'text-[#8696a0]' : 'text-slate-400'
                 }`}
               >
                 {/* Active top line indicator */}
                 {isActive && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-blue-500" />
+                  <span className={`absolute top-0 left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full ${darkMode ? 'bg-[#00a884]' : 'bg-blue-500'}`} />
                 )}
                 {/* Unread badge */}
                 {id === 'chats' && unreadTotal > 0 && !isActive && (
-                  <span className="absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-blue-500 text-white text-[9px] font-bold px-0.5">
+                  <span className={`absolute top-1.5 left-1/2 ml-2 min-w-[16px] h-4 flex items-center justify-center rounded-full text-white text-[9px] font-bold px-0.5 ${darkMode ? 'bg-[#00a884]' : 'bg-blue-500'}`}>
                     {unreadTotal > 9 ? '9+' : unreadTotal}
                   </span>
                 )}
@@ -1964,20 +2008,20 @@ export default function ChatPage() {
       {isNavModalOpen && (
         <div className="fixed inset-0 z-40 flex">
           <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => setIsNavModalOpen(false)} />
-          <div className={`relative m-3 h-[calc(100%-1.5rem)] w-full max-w-xs rounded-2xl border shadow-2xl ${darkMode ? 'border-slate-700/80 bg-slate-900' : 'border-slate-200 bg-white'}`}>
-            <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? 'border-slate-800' : 'border-slate-100'}`}>
+          <div className={`relative m-3 h-[calc(100%-1.5rem)] w-full max-w-xs rounded-2xl border shadow-2xl ${darkMode ? 'border-white/10 bg-[#202c33]' : 'border-slate-200 bg-white'}`}>
+            <div className={`flex items-center justify-between border-b px-4 py-3 ${darkMode ? 'border-white/5' : 'border-slate-100'}`}>
               <div className="flex items-center gap-2">
-                <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${darkMode ? 'bg-slate-800 text-slate-300' : 'bg-slate-100 text-slate-600'}`}>
+                <span className={`h-7 w-7 rounded-lg flex items-center justify-center ${darkMode ? 'bg-[#111b21] text-[#e9edef]' : 'bg-slate-100 text-slate-600'}`}>
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M4 12h16M4 17h16" />
                   </svg>
                 </span>
-                <p className="text-sm font-semibold">Navigation</p>
+                <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>Navigation</p>
               </div>
               <button
                 type="button"
                 onClick={() => setIsNavModalOpen(false)}
-                className={`h-8 w-8 rounded-lg transition-colors ${darkMode ? 'text-slate-500 hover:bg-slate-800 hover:text-slate-300' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
+                className={`h-8 w-8 rounded-lg transition-colors ${darkMode ? 'text-[#8696a0] hover:bg-[#111b21] hover:text-[#e9edef]' : 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'}`}
                 title="Close"
               >
                 <svg className="mx-auto h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2002,15 +2046,15 @@ export default function ChatPage() {
                     className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
                       isActive
                         ? darkMode
-                          ? 'bg-blue-500/15 text-blue-300'
+                          ? 'bg-[#00a884]/15 text-[#7ae3cb]'
                           : 'bg-blue-50 text-blue-700'
                         : darkMode
-                          ? 'text-slate-300 hover:bg-slate-800'
+                          ? 'text-[#e9edef] hover:bg-[#111b21]'
                           : 'text-slate-700 hover:bg-slate-50'
                     }`}
                   >
                     <p className="text-sm font-semibold">{item.label}</p>
-                    <p className={`text-[11px] ${isActive ? (darkMode ? 'text-blue-300/80' : 'text-blue-600/80') : (darkMode ? 'text-slate-500' : 'text-slate-400')}`}>
+                    <p className={`text-[11px] ${isActive ? (darkMode ? 'text-[#7ae3cb]/80' : 'text-blue-600/80') : (darkMode ? 'text-[#8696a0]' : 'text-slate-400')}`}>
                       {item.helper}
                     </p>
                   </button>
@@ -2018,11 +2062,11 @@ export default function ChatPage() {
               })}
             </nav>
 
-            <div className={`absolute bottom-0 left-0 right-0 border-t px-3 py-3 ${darkMode ? 'border-slate-800 bg-slate-900/95' : 'border-slate-100 bg-white/95'}`}>
+            <div className={`absolute bottom-0 left-0 right-0 border-t px-3 py-3 ${darkMode ? 'border-white/5 bg-[#202c33]/95' : 'border-slate-100 bg-white/95'}`}>
               <button
                 type="button"
                 onClick={() => setDarkMode((current) => !current)}
-                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${darkMode ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+                className={`w-full rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors ${darkMode ? 'bg-[#111b21] text-[#e9edef] hover:bg-[#2a3942]' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
               >
                 {darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
               </button>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { RoomItem } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
 
@@ -23,17 +23,23 @@ export function ChatList(props: ChatListProps) {
 
   const query = props.searchQuery.trim().toLowerCase();
 
-  const unreadCount = props.rooms.filter((r) => r.unread > 0).length;
-  const groupCount = props.rooms.filter((r) => !r.key.startsWith('dm_')).length;
+  const sortedRooms = useMemo(() => {
+    const pinned = props.rooms.filter((r) => props.pinnedRoomKeys.includes(r.key));
+    const unpinned = props.rooms.filter((r) => !props.pinnedRoomKeys.includes(r.key));
+    return [...pinned, ...unpinned];
+  }, [props.rooms, props.pinnedRoomKeys]);
+
+  const unreadCount = sortedRooms.filter((r) => r.unread > 0).length;
+  const groupCount = sortedRooms.filter((r) => !r.key.startsWith('dm_')).length;
 
   let filtered = query
-    ? props.rooms.filter(
+    ? sortedRooms.filter(
         (r) =>
           r.name.toLowerCase().includes(query) ||
           r.key.toLowerCase().includes(query) ||
           r.lastMessage.toLowerCase().includes(query),
       )
-    : props.rooms;
+    : sortedRooms;
 
   if (activeFilter === 'unread') filtered = filtered.filter((r) => r.unread > 0);
   if (activeFilter === 'groups') filtered = filtered.filter((r) => !r.key.startsWith('dm_'));

@@ -117,7 +117,7 @@ export default function ChatPage() {
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
-  const [typingUsers, setTypingUsers] = useState<Record<number, string>>({});
+  const [typingUsers, setTypingUsers] = useState<Record<string, Record<number, string>>>({});
 
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
 
@@ -149,7 +149,7 @@ export default function ChatPage() {
   const activeRoomRef = useRef('general');
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const typingClearTimersRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
+  const typingClearTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const messageEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const pendingOptimisticsRef = useRef<string[]>([]); // FIFO queue of __temp__ IDs waiting for server confirmation
@@ -193,10 +193,11 @@ export default function ChatPage() {
   }, [callStartedAt]);
 
   const typingIndicator = useMemo(() => {
-    const values = Object.values(typingUsers);
+    const roomTyping = typingUsers[activeRoomKey] ?? {};
+    const values = Object.values(roomTyping);
     if (values.length === 0) return '';
     return `${values.join(', ')} typing...`;
-  }, [typingUsers]);
+  }, [typingUsers, activeRoomKey]);
 
   const activeRoomName = useMemo(() => {
     if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
@@ -295,7 +296,7 @@ export default function ChatPage() {
     const switched = prevScrollRoomRef.current !== activeRoomKey;
     prevScrollRoomRef.current = activeRoomKey;
     messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
-  }, [messages, activeRoomKey, typingIndicator]);
+  }, [messages, activeRoomKey]);
 
   useEffect(() => {
     if (!profile) return;
@@ -303,6 +304,7 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (!mineResponse.ok) return;
       let mineData = (await mineResponse.json()) as GroupSummary[];
+      mineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
       if (mineData.length === 0) {
         await authFetch(`${API_URL}/groups`, {
           method: 'POST',
@@ -311,6 +313,7 @@ export default function ChatPage() {
         });
         const afterCreate = await authFetch(`${API_URL}/groups/mine`);
         if (afterCreate.ok) mineData = (await afterCreate.json()) as GroupSummary[];
+        mineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
       }
       setGroups(mineData);
       setRooms((prev) => mineData.map((group) => {
@@ -518,6 +521,7 @@ export default function ChatPage() {
     socket.on('connected', () => { setStatus('Connected with encrypted channel.'); socket.emit('join_room', { roomKey: activeRoomRef.current }); });
     socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profile.userId)); });
     socket.on('room_joined', (payload: { room: { key: string; name?: string }; messages: ChatMessage[] }) => {
+      if (payload.room.key !== activeRoomRef.current) return;
       setActiveRoomKey(payload.room.key);
       setMessages(payload.messages);
       setTypingUsers({});
@@ -525,8 +529,8 @@ export default function ChatPage() {
       setRooms((prev) => {
         const current = prev.find((room) => room.key === payload.room.key);
         let roomName = payload.room.name || current?.name || payload.room.key;
-        // For DMs, derive name from the other participant in messages
-        if (payload.room.key.startsWith('dm_')) {
+        // For DMs, only derive name from messages if we don't already have a stable name
+        if (payload.room.key.startsWith('dm_') && !current?.name) {
           const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profile.userId));
           if (otherParticipant) {
             roomName = otherParticipant.sender.username;
@@ -567,13 +571,14 @@ export default function ChatPage() {
       setRooms((prev) => {
         const current = prev.find((room) => room.key === message.roomKey);
         let name = current?.name;
-        // For DM rooms, always use the other participant's name (correct it if needed)
-        if (message.roomKey.startsWith('dm_')) {
-          name = message.sender.userId !== profile.userId
-            ? message.sender.username
-            : current?.name ?? message.roomKey;
-        } else if (!name || name === message.roomKey) {
-          name = current?.name ?? message.roomKey;
+        if (!name) {
+          if (message.roomKey.startsWith('dm_')) {
+            name = message.sender.userId !== profile.userId
+              ? message.sender.username
+              : current?.name ?? message.roomKey;
+          } else if (!name || name === message.roomKey) {
+            name = current?.name ?? message.roomKey;
+          }
         }
         const nextRoom: RoomItem = {
           key: message.roomKey,
@@ -586,19 +591,34 @@ export default function ChatPage() {
       });
       if (message.sender.userId !== profile.userId) {
         socket.emit('read_receipt', { messageId: message.id, status: 'DELIVERED' });
-        setTimeout(() => socket.emit('read_receipt', { messageId: message.id, status: 'READ' }), 350);
+        setTimeout(() => {
+          socket.emit('read_receipt', { messageId: message.id, status: 'READ' });
+        }, 400);
+        setTypingUsers((current) => {
+          const roomTyping = current[message.roomKey] ?? {};
+          const nextRoomTyping = { ...roomTyping };
+          delete nextRoomTyping[message.sender.userId];
+          return { ...current, [message.roomKey]: nextRoomTyping };
+        });
       }
     });
     socket.on('typing', (payload: { roomKey: string; isTyping: boolean; user: { userId: number; username: string } }) => {
-      if (payload.roomKey !== activeRoomRef.current || payload.user.userId === profile.userId) return;
+      if (payload.user.userId === profile.userId) return;
+      const timerKey = `${payload.roomKey}_${payload.user.userId}`;
       setTypingUsers((current) => {
-        const next = { ...current };
-        payload.isTyping ? (next[payload.user.userId] = payload.user.username) : delete next[payload.user.userId];
-        return next;
+        const roomTyping = current[payload.roomKey] ?? {};
+        const nextRoomTyping = { ...roomTyping };
+        payload.isTyping ? (nextRoomTyping[payload.user.userId] = payload.user.username) : delete nextRoomTyping[payload.user.userId];
+        return { ...current, [payload.roomKey]: nextRoomTyping };
       });
-      if (typingClearTimersRef.current[payload.user.userId]) clearTimeout(typingClearTimersRef.current[payload.user.userId]);
-      typingClearTimersRef.current[payload.user.userId] = setTimeout(() => {
-        setTypingUsers((current) => { const next = { ...current }; delete next[payload.user.userId]; return next; });
+      if (typingClearTimersRef.current[timerKey]) clearTimeout(typingClearTimersRef.current[timerKey]);
+      typingClearTimersRef.current[timerKey] = setTimeout(() => {
+        setTypingUsers((current) => {
+          const roomTyping = current[payload.roomKey] ?? {};
+          const nextRoomTyping = { ...roomTyping };
+          delete nextRoomTyping[payload.user.userId];
+          return { ...current, [payload.roomKey]: nextRoomTyping };
+        });
       }, 1200);
     });
     socket.on('read_receipt', (payload: { messageId: string; userId: number; status: 'DELIVERED' | 'READ'; username: string }) => {
@@ -749,15 +769,22 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
+        const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+        setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const groupKeys = new Set(mineData.map((g) => g.key));
-          const updatedGroups = mineData.map((g) => {
+          const groupKeys = new Set(dedupedMineData.map((g) => g.key));
+          const updatedGroups = dedupedMineData.map((g) => {
             const existing = prev.find((r) => r.key === g.key);
             return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
           });
-          return [...dmRooms, ...updatedGroups].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
+          const seenKeys = new Set<string>();
+          const deduped = [...dmRooms, ...updatedGroups].filter((r) => {
+            if (seenKeys.has(r.key)) return false;
+            seenKeys.add(r.key);
+            return true;
+          });
+          return deduped;
         });
       }
     });
@@ -765,16 +792,23 @@ export default function ChatPage() {
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
         const mineData = (await mineResponse.json()) as GroupSummary[];
-        setGroups(mineData);
+        const dedupedMineData = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+        setGroups(dedupedMineData);
         setRooms(prev => {
-          const existingKeys = new Set(mineData.map(g => g.key));
+          const existingKeys = new Set(dedupedMineData.map(g => g.key));
           const filtered = prev.filter(r => existingKeys.has(r.key) || r.key.startsWith('dm_'));
-          const updatedGroups = mineData.map((g) => {
+          const updatedGroups = dedupedMineData.map((g) => {
             const existing = filtered.find(r => r.key === g.key);
             return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
           });
-          const dmRooms = filtered.filter(r => !mineData.some(g => g.key === r.key));
-          return [...updatedGroups, ...dmRooms].filter((r, i, self) => self.findIndex((x) => x.key === r.key) === i);
+          const dmRooms = filtered.filter(r => !dedupedMineData.some(g => g.key === r.key));
+          const seenKeys = new Set<string>();
+          const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
+            if (seenKeys.has(r.key)) return false;
+            seenKeys.add(r.key);
+            return true;
+          });
+          return deduped;
         });
       }
     });

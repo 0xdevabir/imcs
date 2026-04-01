@@ -58,6 +58,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly userStatusMap = new Map<number, UserStatus>();
   // roomKey → Map<userId, username> for active calls
   private readonly callRooms = new Map<string, Map<number, string>>();
+  // roomKey → { fromUserId, toUserId, callType, timestamp } for pending 1-to-1 calls
+  private readonly pendingCalls = new Map<string, { fromUserId: number; toUserId: number; callType: 'voice' | 'video'; roomKey: string; timestamp: number }>();
 
   constructor(
     private readonly jwtService: JwtService,
@@ -133,13 +135,21 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const [roomKey, room] of this.callRooms.entries()) {
       if (room.has(user.userId)) {
         room.delete(user.userId);
-        for (const [participantId] of room) {
-          this.forwardToUser(participantId, 'user_left_call', {
-            userId: user.userId,
-            username: user.username,
-          });
+        if (room.size <= 1) {
+          for (const [participantId] of room) {
+            this.forwardToUser(participantId, 'call_ended', {
+              reason: 'Other participant left',
+            });
+          }
+          this.callRooms.delete(roomKey);
+        } else {
+          for (const [participantId] of room) {
+            this.forwardToUser(participantId, 'user_left_call', {
+              userId: user.userId,
+              username: user.username,
+            });
+          }
         }
-        if (room.size === 0) this.callRooms.delete(roomKey);
       }
     }
 
@@ -155,6 +165,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) {
       client.emit('error', 'roomKey is required');
+      return;
+    }
+    if (!this.isValidRoomKey(roomKey)) {
+      client.emit('error', 'Invalid roomKey format');
       return;
     }
 
@@ -180,6 +194,40 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     client.emit('room_joined', { room: { key: room.key, name: room.name }, messages });
   }
 
+  @SubscribeMessage('leave_room')
+  async handleLeaveRoom(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { roomKey?: string },
+  ) {
+    const roomKey = body?.roomKey?.trim();
+    if (!roomKey) {
+      client.emit('error', 'roomKey is required');
+      return;
+    }
+    if (!this.isValidRoomKey(roomKey)) {
+      client.emit('error', 'Invalid roomKey format');
+      return;
+    }
+
+    const user = this.getUser(client);
+    const room = await this.eventsService.getRoomByKey(roomKey);
+    if (!room) {
+      client.emit('error', 'Group not found');
+      return;
+    }
+
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess && user.role !== 'admin') {
+      client.emit('error', 'Unauthorized group access');
+      return;
+    }
+
+    await client.leave(room.key);
+  }
+
   @SubscribeMessage('send_message')
   async handleSendMessage(
     @ConnectedSocket() client: Socket,
@@ -189,6 +237,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const content = body?.content?.trim();
     if (!roomKey || !content) {
       client.emit('error', 'roomKey and content are required');
+      return;
+    }
+    if (!this.isValidRoomKey(roomKey)) {
+      client.emit('error', 'Invalid roomKey format');
       return;
     }
 
@@ -209,8 +261,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const participants = await this.eventsService.getRoomParticipantUsernames(roomKey);
+    const allowedParticipantUserIds: number[] = [];
     for (const participantUsername of participants) {
       if (participantUsername === user.username) {
+        const participantUser = await this.usersService.findOne(participantUsername);
+        if (participantUser) allowedParticipantUserIds.push(participantUser.userId);
         continue;
       }
 
@@ -218,9 +273,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         user.username,
         participantUsername,
       );
-      if (!allowed) {
-        client.emit('error', `Messaging is blocked between ${user.username} and ${participantUsername}`);
-        return;
+      if (allowed) {
+        const participantUser = await this.usersService.findOne(participantUsername);
+        if (participantUser) allowedParticipantUserIds.push(participantUser.userId);
       }
     }
 
@@ -231,11 +286,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       replyToMessageId: body.replyToMessageId?.trim(),
     });
 
-    this.server.to(roomKey).emit('receive_message', message);
+    for (const participantUserId of allowedParticipantUserIds) {
+      const participantSocketIds = this.getSocketIds(participantUserId);
+      for (const socketId of participantSocketIds) {
+        this.server.to(socketId).emit('receive_message', message);
+      }
+    }
   }
 
   @SubscribeMessage('typing')
-  handleTyping(
+  async handleTyping(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { roomKey?: string; isTyping?: boolean },
   ) {
@@ -243,11 +303,23 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!roomKey) {
       return;
     }
+    if (!this.isValidRoomKey(roomKey)) {
+      return;
+    }
+
+    const user = this.getUser(client);
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess && user.role !== 'admin') {
+      return;
+    }
 
     client.to(roomKey).emit('typing', {
       roomKey,
       isTyping: Boolean(body?.isTyping),
-      user: this.getUser(client),
+      user,
     });
   }
 
@@ -257,15 +329,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { messageId?: string; status?: 'DELIVERED' | 'READ' },
   ) {
     const messageId = body?.messageId?.trim();
-    if (!messageId || !body?.status) {
+    const status = body?.status;
+    if (!messageId || !status || (status !== 'DELIVERED' && status !== 'READ')) {
       return;
     }
 
     const receipt = await this.eventsService.acknowledgeReceipt({
       messageId,
-      status: body.status,
+      status,
       user: this.getUser(client),
     });
+
+    if (!receipt) return;
 
     this.server.to(receipt.roomKey).emit('read_receipt', receipt);
   }
@@ -327,6 +402,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    for (const [, room] of this.callRooms) {
+      if (room.has(from.userId)) {
+        client.emit('error', 'You are already in a call');
+        return;
+      }
+    }
+
     const targetSocketIds = this.getSocketIds(targetUserId);
     if (targetSocketIds.length === 0) {
       client.emit('reject_call', { byUserId: targetUserId, reason: 'User is offline' });
@@ -352,12 +434,24 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const callType: 'voice' | 'video' = body?.callType === 'voice' || body?.callType === 'video' ? body.callType : 'video';
+    const roomKey = body?.roomKey?.trim() ?? `call_${from.userId}_${targetUserId}_${Date.now()}`;
+
     const payload = {
       fromUserId: from.userId,
       fromUsername: from.username,
-      roomKey: body?.roomKey?.trim() ?? '',
-      callType: body?.callType === 'voice' ? 'voice' : 'video',
+      roomKey,
+      callType,
     };
+
+    const callKey = `${from.userId}_${targetUserId}`;
+    this.pendingCalls.set(callKey, {
+      fromUserId: from.userId,
+      toUserId: targetUserId,
+      callType,
+      roomKey,
+      timestamp: Date.now(),
+    });
 
     for (const socketId of targetSocketIds) {
       this.server.to(socketId).emit('receive_call', payload);
@@ -372,9 +466,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.getUser(client);
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
+    if (!this.isValidRoomKey(roomKey)) return;
+
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess && user.role !== 'admin') {
+      client.emit('error', 'Unauthorized room access');
+      return;
+    }
 
     const participantUsernames = await this.eventsService.getRoomParticipantUsernames(roomKey);
-    const callType = body?.callType === 'voice' ? 'voice' : 'video';
+    const callType: 'voice' | 'video' = body?.callType === 'voice' || body?.callType === 'video' ? body.callType : 'video';
 
     for (const username of participantUsernames) {
       if (username === user.username) continue;
@@ -401,6 +505,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.getUser(client);
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
+    if (!this.isValidRoomKey(roomKey)) return;
 
     if (!this.callRooms.has(roomKey)) {
       this.callRooms.set(roomKey, new Map());
@@ -414,7 +519,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         username: uname,
       }));
 
-    const callType = body?.callType === 'voice' ? 'voice' : 'video';
+    const callType: 'voice' | 'video' = body?.callType === 'voice' || body?.callType === 'video' ? body.callType : 'video';
+
+    callRoom.set(user.userId, user.username);
 
     // Notify all current participants that a new user joined — they create offers
     for (const [participantId] of callRoom) {
@@ -424,8 +531,6 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         callType,
       });
     }
-
-    callRoom.set(user.userId, user.username);
 
     // Tell the new joiner who is already in the call
     client.emit('call_participants', { participants: existingParticipants });
@@ -439,6 +544,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = this.getUser(client);
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
+    if (!this.isValidRoomKey(roomKey)) return;
 
     const callRoom = this.callRooms.get(roomKey);
     if (!callRoom) return;
@@ -476,6 +582,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { targetUserId?: number },
   ) {
     const user = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return;
+    }
+    const callKey = `${targetUserId}_${user.userId}`;
+    const pendingCall = this.pendingCalls.get(callKey);
+    if (!pendingCall) {
+      return;
+    }
+    this.pendingCalls.delete(callKey);
     this.forwardToUser(body?.targetUserId, 'accept_call', {
       fromUserId: user.userId,
       fromUsername: user.username,
@@ -487,8 +603,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { targetUserId?: number; reason?: string },
   ) {
+    const user = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return;
+    }
+    const callKey = `${targetUserId}_${user.userId}`;
+    this.pendingCalls.delete(callKey);
     this.forwardToUser(body?.targetUserId, 'reject_call', {
-      fromUserId: this.getUser(client).userId,
+      fromUserId: user.userId,
       reason: body?.reason ?? 'Call rejected',
     });
   }
@@ -501,10 +624,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!body?.sdp) {
       return;
     }
+    const user = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return;
+    }
+    if (!this.areUsersInCall(user.userId, targetUserId)) {
+      return;
+    }
 
     this.forwardToUser(body?.targetUserId, 'offer', {
-      fromUserId: this.getUser(client).userId,
-      fromUsername: this.getUser(client).username,
+      fromUserId: user.userId,
+      fromUsername: user.username,
       sdp: body.sdp,
     });
   }
@@ -517,10 +648,18 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!body?.sdp) {
       return;
     }
+    const user = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return;
+    }
+    if (!this.areUsersInCall(user.userId, targetUserId)) {
+      return;
+    }
 
     this.forwardToUser(body?.targetUserId, 'answer', {
-      fromUserId: this.getUser(client).userId,
-      fromUsername: this.getUser(client).username,
+      fromUserId: user.userId,
+      fromUsername: user.username,
       sdp: body.sdp,
     });
   }
@@ -533,9 +672,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!body?.candidate) {
       return;
     }
+    const user = this.getUser(client);
+    const targetUserId = Number(body?.targetUserId);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+      return;
+    }
+    if (!this.areUsersInCall(user.userId, targetUserId)) {
+      return;
+    }
 
     this.forwardToUser(body?.targetUserId, 'ice_candidate', {
-      fromUserId: this.getUser(client).userId,
+      fromUserId: user.userId,
       candidate: body.candidate,
     });
   }
@@ -609,6 +756,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return client.data.user as AuthenticatedUser;
   }
 
+  private isValidRoomKey(roomKey: string): boolean {
+    return /^[a-zA-Z0-9_-]+$/.test(roomKey) && roomKey.length >= 1 && roomKey.length <= 255;
+  }
+
   private trackSocket(userId: number, socketId: string) {
     const existing = this.socketsByUserId.get(userId);
     if (!existing) {
@@ -628,6 +779,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     existing.delete(socketId);
     if (existing.size === 0) {
       this.socketsByUserId.delete(userId);
+      this.userStatusMap.delete(userId);
     }
   }
 
@@ -667,6 +819,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     for (const socketId of targetSocketIds) {
       this.server.to(socketId).emit(event, payload);
     }
+  }
+
+  private areUsersInCall(userId1: number, userId2: number): boolean {
+    for (const [, room] of this.callRooms) {
+      if (room.has(userId1) && room.has(userId2)) {
+        return true;
+      }
+    }
+    const callKey1 = `${userId1}_${userId2}`;
+    const callKey2 = `${userId2}_${userId1}`;
+    if (this.pendingCalls.has(callKey1) || this.pendingCalls.has(callKey2)) {
+      return true;
+    }
+    return false;
   }
 
   private extractTokenFromCookie(client: Socket): string | null {

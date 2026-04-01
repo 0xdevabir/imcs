@@ -108,7 +108,7 @@ export function ChatList(props: ChatListProps) {
             value={props.searchQuery}
             onChange={(e) => props.onSearchQueryChange(e.target.value)}
             placeholder="Search or start a new chat"
-            className={`flex-1 bg-transparent text-sm outline-none ${
+            className={`flex-1 bg-transparent text-base md:text-sm outline-none ${
               props.darkMode
                 ? 'text-slate-200 placeholder:text-slate-500'
                 : 'text-slate-800 placeholder:text-slate-400'

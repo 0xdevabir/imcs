@@ -64,16 +64,19 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
   }, [props.messages, messageSearch]);
 
   return (
-    <section className={`flex h-full flex-1 flex-col overflow-hidden ${
+    <section className={`flex h-full min-h-0 flex-1 flex-col overflow-hidden ${
       props.darkMode ? 'bg-[#0d1117]' : 'bg-[#f0f2f5]'
     }`}>
 
       {/* Header */}
-      <header className={`flex-shrink-0 flex items-center justify-between px-4 py-3 border-b z-10 ${
+      <header
+        className={`sticky top-0 flex-shrink-0 flex items-center justify-between gap-2 px-3.5 md:px-4 pb-2 md:pb-3 border-b z-10 ${
         props.darkMode
           ? 'border-white/5 bg-[#202c33]'
           : 'border-slate-200 bg-[#f0f2f5]'
-      }`}>
+      }`}
+        style={{ paddingTop: 'max(env(safe-area-inset-top), 0.65rem)' }}
+      >
         <div className="flex items-center gap-3 min-w-0">
           {/* Back button – mobile only */}
           {props.onBack && (
@@ -96,8 +99,8 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
           </div>
 
           {/* Room info */}
-          <div className="min-w-0">
-            <h2 className={`text-sm font-semibold truncate leading-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
+          <div className={`min-w-0 rounded-2xl px-2.5 py-1 ${props.darkMode ? 'bg-[#111b21]/55' : 'bg-white/85'}`}>
+            <h2 className={`text-base md:text-sm font-semibold truncate leading-tight ${props.darkMode ? 'text-slate-100' : 'text-slate-900'}`}>
               {props.roomTitle}
             </h2>
             <p className={`text-xs truncate leading-tight mt-0.5 ${props.darkMode ? 'text-slate-500' : 'text-slate-500'}`}>
@@ -117,7 +120,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
               value={messageSearch}
               onChange={(e) => setMessageSearch(e.target.value)}
               placeholder="Search messages..."
-              className={`w-32 bg-transparent text-xs outline-none ${props.darkMode ? 'text-slate-200 placeholder:text-slate-500' : 'text-slate-700 placeholder:text-slate-400'}`}
+              className={`w-32 bg-transparent text-base md:text-xs outline-none ${props.darkMode ? 'text-slate-200 placeholder:text-slate-500' : 'text-slate-700 placeholder:text-slate-400'}`}
             />
             {messageSearch && (
               <button type="button" onClick={() => setMessageSearch('')} className={`flex-shrink-0 ${props.darkMode ? 'text-slate-500 hover:text-slate-300' : 'text-slate-400 hover:text-slate-600'}`}>
@@ -132,7 +135,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
       </header>
 
       {/* Messages area */}
-      <div className={`flex-1 overflow-y-auto px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
+      <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
         {props.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-sm ${
@@ -232,7 +235,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
       </div>
 
       {/* Composer */}
-      <footer className={`flex-shrink-0 border-t px-4 py-3 md:px-5 ${
+      <footer className={`flex-shrink-0 border-t px-3 py-2.5 md:px-5 md:py-3 ${
         props.darkMode
           ? 'border-white/5 bg-[#202c33]'
           : 'border-slate-200 bg-[#f0f2f5]'

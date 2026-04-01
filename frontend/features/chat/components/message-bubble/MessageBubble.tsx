@@ -378,7 +378,7 @@ function messageStatus(message: ChatMessage, profile: Profile): React.ReactNode 
   // Double teal ticks (read) — WhatsApp style
   if (hasRead) {
     return (
-      <svg className="w-4 h-4 text-[#53bdeb]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="w-4 h-4 text-[#66d9ff]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.8" />
       </svg>
@@ -388,7 +388,7 @@ function messageStatus(message: ChatMessage, profile: Profile): React.ReactNode 
   // Double grey ticks (delivered)
   if (hasDelivered) {
     return (
-      <svg className="w-4 h-4 text-[#8696a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+      <svg className="w-4 h-4 text-[#c7d5db]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
         <path strokeLinecap="round" strokeLinejoin="round" d="M1.5 12.75l4 4" opacity="0.7" />
       </svg>
@@ -397,7 +397,7 @@ function messageStatus(message: ChatMessage, profile: Profile): React.ReactNode 
 
   // Single tick (sent)
   return (
-    <svg className="w-4 h-4 text-[#8696a0]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+    <svg className="w-4 h-4 text-[#c7d5db]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l4 4 9-11" />
     </svg>
   );

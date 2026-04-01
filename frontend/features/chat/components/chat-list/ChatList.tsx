@@ -114,7 +114,7 @@ export function ChatList(props: ChatListProps) {
             value={props.searchQuery}
             onChange={(e) => props.onSearchQueryChange(e.target.value)}
             placeholder="Search or start a new chat"
-            className={`flex-1 bg-transparent text-sm outline-none ${
+            className={`flex-1 bg-transparent text-base md:text-sm outline-none ${
               props.darkMode
                 ? 'text-slate-200 placeholder:text-slate-500'
                 : 'text-slate-800 placeholder:text-slate-400'
@@ -353,7 +353,7 @@ function ChatListItem(props: ItemProps) {
                   e.stopPropagation();
                   props.onTogglePin(props.room.key);
                 }}
-                className={`opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
+                className={`opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
                   props.isPinned
                     ? props.darkMode
                       ? 'text-amber-500 hover:text-amber-400'

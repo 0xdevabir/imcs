@@ -1759,6 +1759,7 @@ export default function ChatPage() {
                     hasMoreMessages={hasMoreMessages}
                     loadingMoreMessages={loadingMoreMessages}
                     onLoadMore={loadOlderMessages}
+                    onlineUsers={onlineUsers}
                     headerActions={
                       <>
                         {(() => {

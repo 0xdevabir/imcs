@@ -23,6 +23,7 @@ interface ChatWindowProps {
   headerActions: React.ReactNode;
   composer: React.ReactNode;
   onBack?: () => void;
+  onlineUsers?: { userId: number; username: string; status: string }[];
 }
 
 function formatDateLabel(dateStr: string): string {
@@ -207,6 +208,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
                   onReply={props.onReply}
                   onStartEdit={props.onStartEdit}
                   onDelete={props.onDelete}
+                  onlineUsers={props.onlineUsers}
                 />
               )
             )}

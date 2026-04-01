@@ -37,6 +37,7 @@ interface MessageBubbleProps {
   onReply: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
+  onlineUsers?: { userId: number; username: string; status: string }[];
 }
 
 const quickReactions = ['👍', '❤️', '😂', '🔥', '👏', '🎉'];
@@ -47,6 +48,7 @@ function areEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
     prev.profile.userId === next.profile.userId &&
     prev.darkMode === next.darkMode &&
     prev.participants === next.participants &&
+    prev.onlineUsers === next.onlineUsers &&
     prev.onReact === next.onReact &&
     prev.onReply === next.onReply &&
     prev.onStartEdit === next.onStartEdit &&
@@ -58,6 +60,11 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   const isMine = props.message.sender.userId === props.profile.userId;
   const isGroup = props.participants.length > 2;
   const grad = avatarGradient(props.message.sender.username);
+
+  const isSenderOnline = useMemo(() => {
+    if (!props.onlineUsers) return false;
+    return props.onlineUsers.some(u => u.userId === props.message.sender.userId);
+  }, [props.onlineUsers, props.message.sender.userId]);
 
   const attachment = useMemo(
     () => parseAttachmentMessage(props.message.content),
@@ -97,8 +104,9 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
       <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[65%]`}>
         {/* Sender name for group chats */}
         {!isMine && isGroup && (
-          <p className={`text-[12px] font-semibold mb-1 ml-1 ${props.darkMode ? 'text-[#00a884]' : 'text-[#008069]'}`}>
-            {props.message.sender.username}
+          <p className={`text-[12px] font-semibold mb-1 ml-1 flex items-center gap-1.5 ${props.darkMode ? 'text-[#00a884]' : 'text-[#008069]'}`}>
+            <span>{props.message.sender.username}</span>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isSenderOnline ? 'bg-emerald-500' : 'bg-slate-400'}`} />
           </p>
         )}
 

@@ -890,6 +890,22 @@ export default function ChatPage() {
         });
       }
     });
+    socket.on('username_changed', (payload: { userId: number; oldUsername: string; newUsername: string }) => {
+      const { userId, oldUsername, newUsername } = payload;
+      setRooms((prev) => prev.map((room) => {
+        if (room.key.startsWith('dm_') && room.name === oldUsername) {
+          return { ...room, name: newUsername };
+        }
+        return room;
+      }));
+      setParticipants((prev) => prev.map((p) => p.userId === userId ? { ...p, username: newUsername } : p));
+      setGroups((prev) => prev.map((g) => {
+        if (g.key.startsWith('dm_') && g.name === oldUsername) {
+          return { ...g, name: newUsername };
+        }
+        return g;
+      }));
+    });
     return () => {
       cleanupCall();
       socket.removeAllListeners();
@@ -1746,32 +1762,60 @@ export default function ChatPage() {
                     headerActions={
                       <>
                         {(() => {
+                          if (!profile) return null;
+                          const isDM = activeRoomKey.startsWith('dm_');
                           const others = participants.filter(p => p.userId !== profile.userId);
-                          if (others.length === 0) return null;
-                          const isGroup = others.length > 1;
                           const callTarget = others[0];
                           return (
                             <div className="flex items-center gap-0.5 md:gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleVoiceCall(callTarget.userId, callTarget.username)}
-                                className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
-                                title={isGroup ? 'Start group voice call' : `Voice call ${callTarget.username}`}
-                              >
-                                <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                </svg>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => isGroup ? setShowMeetingPrompt(true) : handleVideoCall(callTarget.userId, callTarget.username)}
-                                className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
-                                title={isGroup ? 'Join meeting' : `Video call ${callTarget.username}`}
-                              >
-                                <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                </svg>
-                              </button>
+                              {isDM && others.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleVoiceCall(callTarget.userId, callTarget.username)}
+                                  className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                  title={`Voice call ${callTarget.username}`}
+                                >
+                                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                  </svg>
+                                </button>
+                              )}
+                              {isDM && others.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleVideoCall(callTarget.userId, callTarget.username)}
+                                  className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                  title={`Video call ${callTarget.username}`}
+                                >
+                                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                </button>
+                              )}
+                              {!isDM && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowMeetingPrompt(true)}
+                                  className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                  title="Join meeting"
+                                >
+                                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                  </svg>
+                                </button>
+                              )}
+                              {!isDM && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleVoiceCall(0, activeRoomKey)}
+                                  className={`p-1.5 md:p-2 rounded-full transition-colors ${darkMode ? 'text-[#aebac1] hover:bg-[#2a3942]' : 'text-[#54656f] hover:bg-slate-100'}`}
+                                  title="Start group voice call"
+                                >
+                                  <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                  </svg>
+                                </button>
+                              )}
                             </div>
                           );
                         })()}

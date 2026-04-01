@@ -138,6 +138,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
   }
 
+  /** Broadcast username_changed event to all rooms the user is a member of */
+  async broadcastUsernameChanged(userId: number, oldUsername: string, newUsername: string) {
+    try {
+      const roomKeys = await this.eventsService.getRoomKeysForUser(userId);
+      for (const roomKey of roomKeys) {
+        this.server.to(roomKey).emit('username_changed', {
+          userId,
+          oldUsername,
+          newUsername,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to broadcast username change:', error);
+    }
+  }
+
   handleDisconnect(client: Socket) {
     const user = client.data.user as AuthenticatedUser | undefined;
     if (!user) {

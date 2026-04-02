@@ -514,7 +514,7 @@ export class EventsService {
     });
 
     if (!message) return null;
-    if (message.senderUserId !== input.userId && input.role !== 'admin') return null;
+    if (message.senderUserId !== input.userId) return null;
 
     await this.prisma.chatMessage.update({
       where: { id: input.messageId },

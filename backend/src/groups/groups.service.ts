@@ -93,7 +93,7 @@ export class GroupsService {
     }
 
     const isMember = room.members.some((member) => member.userId === user.userId);
-    if (!isMember && user.role !== 'admin') {
+    if (!isMember) {
       throw new ForbiddenException('You are not a member of this group');
     }
 
@@ -112,9 +112,9 @@ export class GroupsService {
       throw new NotFoundException('Group not found');
     }
 
-    const canManage = user.role === 'admin' || room.ownerUserId === user.userId;
+    const canManage = room.ownerUserId === user.userId;
     if (!canManage) {
-      throw new ForbiddenException('Only group owner or admin can manage members');
+      throw new ForbiddenException('Only the group owner can manage members');
     }
 
     return room;
@@ -416,16 +416,13 @@ export class GroupsService {
 
   async listGroupsForUser(user: RequestUser) {
     const groups = await this.prisma.chatRoom.findMany({
-      where:
-        user.role === 'admin'
-          ? undefined
-          : {
-              members: {
-                some: {
-                  userId: user.userId,
-                },
-              },
-            },
+      where: {
+        members: {
+          some: {
+            userId: user.userId,
+          },
+        },
+      },
       include: {
         members: {
           orderBy: { username: 'asc' },
@@ -510,7 +507,7 @@ export class GroupsService {
         ownerUsername: group.ownerUsername,
       },
       participants: await Promise.all(group.members.map((member) => this.toParticipantView(group, member))),
-      canManageMembers: user.role === 'admin' || group.ownerUserId === user.userId,
+      canManageMembers: group.ownerUserId === user.userId,
     };
   }
 

@@ -69,53 +69,6 @@ export class UsersController {
     return this.usersService.findAllSafe();
   }
 
-  @Get(':username')
-  async getUserByUsername(@Param('username') username: string) {
-    const user = await this.usersService.findOne(username);
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-    return this.usersService.findSafeById(user.userId);
-  }
-
-  @Patch(':username/role')
-  @Roles('admin')
-  async updateRole(
-    @Param('username') username: string,
-    @Body() body: UpdateUserRoleDto,
-    @Request() request: { user: { username: string } },
-  ) {
-    if (username === request.user.username && body.role !== 'admin') {
-      throw new BadRequestException('You cannot remove your own admin role');
-    }
-
-    const updated = await this.usersService.updateRole(username, body.role);
-    if (!updated) {
-      throw new NotFoundException('User not found');
-    }
-
-    return updated;
-  }
-
-
-  @Delete(':username')
-  @Roles('admin')
-  async deleteUser(
-    @Param('username') username: string,
-    @Request() request: { user: { username: string } },
-  ) {
-    if (username === request.user.username) {
-      throw new BadRequestException('You cannot delete your own account');
-    }
-
-    const deleted = await this.usersService.deleteUser(username);
-    if (!deleted) {
-      throw new NotFoundException('User not found');
-    }
-
-    return { success: true };
-  }
-
   @Get('contacts')
   async getContacts(@Request() req: { user: { userId: number } }) {
     return this.usersService.getContacts(req.user.userId);
@@ -240,6 +193,52 @@ export class UsersController {
 
     await this.usersService.updateProfilePicture(req.user.userId, null);
     this.eventsGateway.broadcastProfilePictureChanged(req.user.userId, req.user.username, null);
+
+    return { success: true };
+  }
+
+  @Get(':username')
+  async getUserByUsername(@Param('username') username: string) {
+    const user = await this.usersService.findOne(username);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+    return this.usersService.findSafeById(user.userId);
+  }
+
+  @Patch(':username/role')
+  @Roles('admin')
+  async updateRole(
+    @Param('username') username: string,
+    @Body() body: UpdateUserRoleDto,
+    @Request() request: { user: { username: string } },
+  ) {
+    if (username === request.user.username && body.role !== 'admin') {
+      throw new BadRequestException('You cannot remove your own admin role');
+    }
+
+    const updated = await this.usersService.updateRole(username, body.role);
+    if (!updated) {
+      throw new NotFoundException('User not found');
+    }
+
+    return updated;
+  }
+
+  @Delete(':username')
+  @Roles('admin')
+  async deleteUser(
+    @Param('username') username: string,
+    @Request() request: { user: { username: string } },
+  ) {
+    if (username === request.user.username) {
+      throw new BadRequestException('You cannot delete your own account');
+    }
+
+    const deleted = await this.usersService.deleteUser(username);
+    if (!deleted) {
+      throw new NotFoundException('User not found');
+    }
 
     return { success: true };
   }

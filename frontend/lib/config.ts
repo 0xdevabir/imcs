@@ -54,7 +54,74 @@ function resolveApiUrl() {
 
 export const API_URL = resolveApiUrl();
 
-export const SOCKET_URL = process.env.NEXT_PUBLIC_BACKEND_URL || API_URL;
+function isNgrokUrl(value: string) {
+	try {
+		const parsed = new URL(value);
+		return /\.ngrok(-free)?\.(app|dev)$/i.test(parsed.hostname);
+	} catch {
+		return false;
+	}
+}
+
+function resolveSocketPath() {
+	if (API_URL.startsWith('/')) {
+		return `${API_URL}/socket.io/`;
+	}
+
+	return '/socket.io/';
+}
+
+function resolveSocketTransports(): Array<'polling' | 'websocket'> {
+	if (typeof window !== 'undefined') {
+		const isLocalBrowser = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+		if (isLocalBrowser && API_URL.startsWith('/')) {
+			// In local https + Next rewrite mode, websocket upgrade is noisy and unreliable.
+			return ['polling'];
+		}
+	}
+
+	return ['websocket', 'polling'];
+}
+
+function resolveSocketUrl() {
+	const explicitSocketUrl = process.env.NEXT_PUBLIC_SOCKET_URL?.trim();
+	if (explicitSocketUrl && isAbsoluteHttpUrl(explicitSocketUrl)) {
+		return explicitSocketUrl.replace(/\/+$/, '');
+	}
+
+	// When API_URL is a same-origin proxy path (e.g. /api), route socket.io through
+	// that proxy to avoid mixed-content/TLS mismatches in https local development.
+	if (API_URL.startsWith('/')) {
+		if (typeof window !== 'undefined') {
+			return window.location.origin;
+		}
+
+		return 'http://localhost:3000';
+	}
+
+	const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+	if (backendUrl && isAbsoluteHttpUrl(backendUrl)) {
+		if (typeof window !== 'undefined') {
+			const isLocalBrowser = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+			if (isLocalBrowser && isNgrokUrl(backendUrl)) {
+				return fallbackApiUrl;
+			}
+		}
+		return backendUrl.replace(/\/+$/, '');
+	}
+
+	if (isAbsoluteHttpUrl(API_URL)) {
+		return API_URL;
+	}
+
+	return fallbackApiUrl;
+}
+
+export const SOCKET_PATH = resolveSocketPath();
+export const SOCKET_URL = resolveSocketUrl();
+export const SOCKET_TRANSPORTS = resolveSocketTransports();
+export const SOCKET_UPGRADE = SOCKET_TRANSPORTS.includes('websocket');
+export const SOCKET_CONNECT_DELAY_MS = 50;
 
 export const AUTH_TOKEN_COOKIE_NAME = 'imcs_auth';
 

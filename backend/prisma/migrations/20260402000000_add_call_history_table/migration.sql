@@ -1,0 +1,3 @@
+-- This migration is intentionally left empty.
+-- CallHistory was already created in the previous migration:
+-- 20260401103006_add_conversation_ids

@@ -257,7 +257,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey: resolvedRoomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized group access');
       return;
     }
@@ -301,7 +301,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized group access');
       return;
     }
@@ -341,7 +341,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized room access');
       return;
     }
@@ -400,7 +400,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       return;
     }
 
@@ -577,7 +577,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized room access');
       return;
     }

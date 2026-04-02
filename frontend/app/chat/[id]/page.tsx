@@ -1602,7 +1602,7 @@ export default function ChatPage() {
 
   return (
     <main className={`${darkMode ? 'dark bg-[#111b21]' : 'bg-[#f0f2f5]'}`}>
-      <div className={`h-[100dvh] pb-[calc(56px+env(safe-area-inset-bottom))] md:h-screen md:pb-0 w-full ${darkMode ? 'bg-[#111b21] text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
+      <div className={`h-[100dvh] ${mobileChatOpen ? 'pb-[env(safe-area-inset-bottom)]' : 'pb-[calc(56px+env(safe-area-inset-bottom))]'} md:h-screen md:pb-0 w-full transition-[padding-bottom] duration-200 ${darkMode ? 'bg-[#111b21] text-slate-100' : 'bg-slate-200 text-slate-900'}`}>
         <div className="flex h-full">
           {/* Left nav sidebar — always visible on desktop */}
           <Sidebar
@@ -2145,7 +2145,9 @@ export default function ChatPage() {
 
         {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
-          className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden ${
+            className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden transition-all duration-200 ${
+              mobileChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            } ${
             darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
           }`}
           style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}

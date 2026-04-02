@@ -114,7 +114,7 @@ export function ChatList(props: ChatListProps) {
             value={props.searchQuery}
             onChange={(e) => props.onSearchQueryChange(e.target.value)}
             placeholder="Search or start a new chat"
-            className={`flex-1 bg-transparent text-sm outline-none ${
+            className={`flex-1 bg-transparent text-base md:text-sm outline-none ${
               props.darkMode
                 ? 'text-slate-200 placeholder:text-slate-500'
                 : 'text-slate-800 placeholder:text-slate-400'
@@ -273,19 +273,27 @@ function ChatListItem(props: ItemProps) {
 
   const grad = avatarGradient(props.room.name);
   const isGroup = !props.room.key.startsWith('dm_');
+  const openRoom = () => props.onOpen(props.room.key);
 
   return (
-    <button
-      type="button"
-      onClick={() => props.onOpen(props.room.key)}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openRoom}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openRoom();
+        }
+      }}
       className={`group w-full text-left transition-colors duration-100 ${
         props.active
           ? props.darkMode
             ? 'bg-[#2a3942]'
             : 'bg-slate-100'
           : props.darkMode
-            ? 'hover:bg-[#202c33]'
-            : 'hover:bg-slate-50'
+            ? 'md:hover:bg-[#202c33]'
+            : 'md:hover:bg-slate-50'
       }`}
     >
       <div className="flex items-center gap-3 px-3 py-3">
@@ -340,7 +348,8 @@ function ChatListItem(props: ItemProps) {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {props.room.unread > 0 && (
                 <span
-                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${
+                  key={props.room.unread}
+                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white badge-pop ${
                     props.darkMode ? 'bg-[#00a884]' : 'bg-[#25d366]'
                   }`}
                 >
@@ -353,7 +362,7 @@ function ChatListItem(props: ItemProps) {
                   e.stopPropagation();
                   props.onTogglePin(props.room.key);
                 }}
-                className={`opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
+                className={`opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
                   props.isPinned
                     ? props.darkMode
                       ? 'text-amber-500 hover:text-amber-400'
@@ -379,6 +388,6 @@ function ChatListItem(props: ItemProps) {
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }

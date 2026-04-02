@@ -42,6 +42,14 @@ export class GroupsController {
     return this.groupsService.listGroupsForUser(request.user);
   }
 
+  @Get(':key')
+  getGroupByKey(
+    @Param('key') key: string,
+    @Request() request: { user: RequestUser },
+  ) {
+    return this.groupsService.getGroupByKey(key, request.user);
+  }
+
   @Get(':key/participants')
   getParticipants(
     @Param('key') key: string,

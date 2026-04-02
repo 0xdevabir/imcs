@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { authFetch } from '@/lib/config';
 import { UserStatus } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
@@ -75,6 +75,12 @@ export function SettingsView({
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [messagePreview, setMessagePreview] = useState(true);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -105,7 +111,9 @@ export function SettingsView({
         const data = await res.json() as { username: string };
         setUnStatus({ type: 'success', msg: 'Username updated successfully.' });
         setNewUsername('');
-        onUsernameChange(data.username);
+        if (isMountedRef.current) {
+          onUsernameChange(data.username);
+        }
       } else {
         const data = await res.json().catch(() => ({})) as { message?: string };
         setUnStatus({ type: 'error', msg: data.message ?? 'Failed to update username.' });
@@ -462,7 +470,7 @@ export function SettingsView({
           >
             <div className="px-5 py-4">
               {/* Change Password toggle row */}
-              <div className={`flex items-center justify-between mb-${showPwForm ? '3' : '0'}`}>
+              <div className={`flex items-center justify-between ${showPwForm ? 'mb-3' : 'mb-0'}`}>
                 <div>
                   <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-[#111b21]'}`}>Change Password</p>
                   <p className={`text-xs ${darkMode ? 'text-[#8696a0]' : 'text-[#667781]'}`}>Update your login credentials</p>

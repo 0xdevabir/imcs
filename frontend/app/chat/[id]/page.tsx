@@ -1,8 +1,8 @@
 'use client';
 
-import React, { FormEvent, TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 import { API_URL, SOCKET_CONNECT_DELAY_MS, SOCKET_PATH, SOCKET_TRANSPORTS, SOCKET_UPGRADE, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
 import { CallUI } from '@/features/calls/components/CallUI';
@@ -56,7 +56,6 @@ function buildRtcConfig(): RTCConfiguration {
     rtcpMuxPolicy: 'require',
   };
 }
-// hello world
 const RTC_CONFIG = buildRtcConfig();
 
 function encodeAttachmentMessage(file: UploadedFileResponse): string {
@@ -80,43 +79,11 @@ function summarizeMessage(content: string): string {
   return content;
 }
 
-type CallHistoryApiItem = {
-  id: string;
-  peerUserId: number;
-  peerUsername: string;
-  callType: string;
-  callStatus: string;
-  duration: number;
-  roomKey?: string;
-  createdAt: string;
-};
-
-function normalizeCallType(callType: string): CallHistoryItem['callType'] {
-  return callType === 'voice' ? 'voice' : 'video';
-}
-
-function normalizeCallStatus(callStatus: string): CallHistoryItem['callStatus'] {
-  if (callStatus === 'missed' || callStatus === 'incoming' || callStatus === 'outgoing') {
-    return callStatus;
-  }
-
-  return 'completed';
-}
-
-function toCallHistoryItem(item: CallHistoryApiItem): CallHistoryItem {
-  return {
-    id: item.id,
-    peerUserId: item.peerUserId,
-    peerUsername: item.peerUsername,
-    callType: normalizeCallType(item.callType),
-    callStatus: normalizeCallStatus(item.callStatus),
-    duration: Number(item.duration) || 0,
-    createdAt: item.createdAt,
-  };
-}
-
 export default function ChatPage() {
+  const params = useParams();
   const router = useRouter();
+  const conversationId = params.id as string | undefined;
+
   const [profile, setProfile] = useState<Profile | null>(null);
   const [status, setStatus] = useState('Checking secure session...');
 
@@ -135,7 +102,7 @@ export default function ChatPage() {
   const [prevSection, setPrevSection] = useState<AppSection | null>(null);
   const [slideDir, setSlideDir] = useState<1 | -1>(1); // 1 = entering from right, -1 = entering from left
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(true);
   const [mobileTransitioning, setMobileTransitioning] = useState(false);
   const [mobilePrevSection, setMobilePrevSection] = useState<AppSection | null>(null);
 
@@ -143,7 +110,7 @@ export default function ChatPage() {
   const [pinnedRoomKeys, setPinnedRoomKeys] = useState<string[]>(['general']);
 
   const [rooms, setRooms] = useState<RoomItem[]>([]);
-  const [activeRoomKey, setActiveRoomKey] = useState('general');
+  const [activeRoomKey, setActiveRoomKey] = useState<string>(conversationId ?? 'general');
 
   const [participants, setParticipants] = useState<GroupParticipant[]>([]);
   const [canManageMembers, setCanManageMembers] = useState(false);
@@ -165,6 +132,7 @@ export default function ChatPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle');
+  const [socketStatus, setSocketStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>('connecting');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [userStatus, setUserStatus] = useState<UserStatus>('available');
 
@@ -185,7 +153,8 @@ export default function ChatPage() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
-  const activeRoomRef = useRef('general');
+  const activeRoomRef = useRef<string>(conversationId ?? 'general');
+  const resolvedConversationIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,6 +185,10 @@ export default function ChatPage() {
   const roomsRef = useRef<RoomItem[]>([]);
   const pendingRoomCreationsRef = useRef<Set<string>>(new Set());
   const groupFetchVersionRef = useRef<number>(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollRestoreRef = useRef<{ prevHeight: number; prevTop: number } | null>(null);
+  const roomDraftsRef = useRef<Map<string, string>>(new Map());
+  const draftRef = useRef('');
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -234,6 +207,23 @@ export default function ChatPage() {
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
+
+  useEffect(() => {
+    if (!conversationId) return;
+    // Don't re-resolve a conversationId we've already handled — prevents
+    // stale URL param (from window.history.replaceState) from overwriting
+    // an in-progress manual navigation after rooms state changes.
+    if (resolvedConversationIdRef.current === conversationId) return;
+    const room = rooms.find((r) => r.groupId === conversationId || r.conversationId === conversationId);
+    if (room) {
+      resolvedConversationIdRef.current = conversationId;
+      setActiveRoomKey(room.key);
+      activeRoomRef.current = room.key;
+      socketRef.current?.emit('join_room', { roomKey: room.key });
+    }
+    // If room not found yet (rooms still loading), don't mark as resolved —
+    // the effect will retry when rooms updates.
+  }, [conversationId, rooms]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -357,6 +347,7 @@ export default function ChatPage() {
   }, [contactSearchQuery, profile]);
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
   useEffect(() => { roomsRef.current = rooms; }, [rooms]);
   useEffect(() => {
@@ -367,8 +358,35 @@ export default function ChatPage() {
       pendingReadReceiptsRef.current.clear();
     }
   }, [activeRoomKey]);
+
+  // Save draft for the previous room and restore the draft for the new room when switching
+  const prevDraftRoomRef = useRef(activeRoomKey);
+  useEffect(() => {
+    const prevRoom = prevDraftRoomRef.current;
+    if (prevRoom === activeRoomKey) return;
+    // Save draft for the room we're leaving
+    roomDraftsRef.current.set(prevRoom, draftRef.current);
+    // Stop-typing for the room we're leaving
+    if (socketRef.current && draftRef.current.trim()) {
+      socketRef.current.emit('typing', { roomKey: prevRoom, isTyping: false });
+    }
+    prevDraftRoomRef.current = activeRoomKey;
+    // Restore saved draft for the new room
+    const savedDraft = roomDraftsRef.current.get(activeRoomKey) ?? '';
+    setDraft(savedDraft);
+  }, [activeRoomKey]);
+  // Restore scroll position after older messages are prepended
+  useLayoutEffect(() => {
+    if (scrollRestoreRef.current && scrollContainerRef.current) {
+      const { prevHeight, prevTop } = scrollRestoreRef.current;
+      scrollContainerRef.current.scrollTop = prevTop + (scrollContainerRef.current.scrollHeight - prevHeight);
+      scrollRestoreRef.current = null;
+    }
+  }, [messages]);
+
   const prevScrollRoomRef = useRef(activeRoomKey);
   useEffect(() => {
+    if (scrollRestoreRef.current) return; // skip auto-scroll-to-bottom when we're restoring position
     const switched = prevScrollRoomRef.current !== activeRoomKey;
     prevScrollRoomRef.current = activeRoomKey;
     messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
@@ -394,28 +412,74 @@ export default function ChatPage() {
       setGroups(mineData);
       setRooms((prev) => mineData.map((group) => {
         const existing = prev.find((room) => room.key === group.key);
-        return {
-          key: group.key,
-          groupId: group.groupId,
-          conversationId: group.conversationId,
-          name: group.name || group.key,
-          unread: existing?.unread ?? 0,
-          lastMessage: existing?.lastMessage ?? 'No messages yet',
-          lastAt: existing?.lastAt,
-        };
+        return { key: group.key, groupId: group.groupId, conversationId: group.conversationId, name: group.name || group.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
       }));
-      const selected = mineData.some((g) => g.key === activeRoomRef.current) ? activeRoomRef.current : mineData[0]?.key ?? 'general';
-      setActiveRoomKey(selected);
-      activeRoomRef.current = selected;
-      socketRef.current?.emit('join_room', { roomKey: selected });
+
+      const urlId = activeRoomRef.current;
+      let selectedKey = activeRoomRef.current;
+      let selectedIdType: 'roomKey' | 'groupId' | 'conversationId' = 'roomKey';
+
+      if (urlId.startsWith('grp_')) {
+        const found = mineData.find((g) => g.groupId === urlId);
+        if (found) {
+          selectedKey = found.key;
+          selectedIdType = 'groupId';
+        }
+      } else if (urlId.startsWith('cnv_')) {
+        const found = mineData.find((g) => g.conversationId === urlId);
+        if (found) {
+          selectedKey = found.key;
+          selectedIdType = 'conversationId';
+        }
+      } else {
+        const exists = mineData.some((g) => g.key === selectedKey);
+        if (!exists) {
+          selectedKey = mineData[0]?.key ?? 'general';
+        }
+      }
+
+      setActiveRoomKey(selectedKey);
+      activeRoomRef.current = selectedKey;
+
+      if (selectedIdType === 'groupId') {
+        socketRef.current?.emit('join_room', { groupId: urlId });
+      } else if (selectedIdType === 'conversationId') {
+        socketRef.current?.emit('join_room', { conversationId: urlId });
+      } else {
+        socketRef.current?.emit('join_room', { roomKey: selectedKey });
+      }
     };
     loadGroups().catch(() => undefined);
   }, [profile]);
 
   useEffect(() => {
     if (!profile || !activeRoomKey) return;
+
+    const resolvedRoomKey =
+      rooms.find(
+        (room) =>
+          room.key === activeRoomKey ||
+          room.groupId === activeRoomKey ||
+          room.conversationId === activeRoomKey,
+      )?.key ??
+      (activeRoomKey.startsWith('grp_') || activeRoomKey.startsWith('cnv_')
+        ? ''
+        : activeRoomKey);
+
+    if (!resolvedRoomKey) {
+      return;
+    }
+
+    // Skip if the room is an optimistic placeholder (added before server confirms it).
+    // It has no conversationId or groupId yet. Once the API confirms the room,
+    // rooms will update and this effect will re-run with the confirmed room.
+    const roomInState = rooms.find((r) => r.key === resolvedRoomKey);
+    if (roomInState && !roomInState.conversationId && !roomInState.groupId) {
+      return;
+    }
+
     const loadParticipants = async () => {
-      const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/participants`);
+      const response = await authFetch(`${API_URL}/groups/${resolvedRoomKey}/participants`);
       if (!response.ok) { setParticipants([]); setCanManageMembers(false); return; }
       const payload = (await response.json()) as { participants: GroupParticipant[]; canManageMembers: boolean };
       const deduped = dedupeParticipants(payload.participants);
@@ -423,7 +487,7 @@ export default function ChatPage() {
       setCanManageMembers(payload.canManageMembers);
     };
     loadParticipants().catch(() => undefined);
-  }, [profile, activeRoomKey]);
+  }, [profile, activeRoomKey, rooms]);
 
   const cleanupCall = () => {
     if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
@@ -610,17 +674,36 @@ export default function ChatPage() {
     }, SOCKET_CONNECT_DELAY_MS);
 
     socketRef.current = socket;
-    socket.on('connected', () => { setStatus('Connected with encrypted channel.'); socket.emit('join_room', { roomKey: activeRoomRef.current }); });
+    let hasConnectedOnce = false;
+    socket.on('connected', () => {
+      setStatus('Connected with encrypted channel.');
+      setSocketStatus('connected');
+      socket.emit('join_room', { roomKey: activeRoomRef.current });
+      if (hasConnectedOnce) {
+        // Reconnect — re-fetch groups/rooms so background unread counts are fresh
+        authFetch(`${API_URL}/groups/mine`).then(async (r) => {
+          if (!r.ok) return;
+          const mineData = (await r.json()) as GroupSummary[];
+          const deduped = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+          setGroups(deduped);
+          setRooms((prev) => deduped.map((g) => {
+            const existing = prev.find((r) => r.key === g.key);
+            return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          }));
+        }).catch(() => {});
+      }
+      hasConnectedOnce = true;
+    });
     socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profileRef.current?.userId)); });
     socket.on('room_joined', (payload: { room: { key: string; name?: string; groupId?: string | null; conversationId?: string | null }; messages: ChatMessage[] }) => {
-      const expectedKey = activeRoomRef.current;
-      if (payload.room.key !== expectedKey) return;
+      if (payload.room.key !== activeRoomRef.current) return;
+      setActiveRoomKey(payload.room.key);
       setMessages(payload.messages);
       setTypingUsers({});
       setRooms((prev) => {
-        const current = prev.find((room) => room.key === expectedKey);
-        let roomName = payload.room.name || current?.name || expectedKey;
-        if (expectedKey.startsWith('dm_')) {
+        const current = prev.find((room) => room.key === payload.room.key);
+        let roomName = payload.room.name || current?.name || payload.room.key;
+        if (payload.room.key.startsWith('dm_')) {
           const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profileRef.current?.userId));
           if (otherParticipant) {
             roomName = otherParticipant.sender.username;
@@ -628,7 +711,7 @@ export default function ChatPage() {
         }
         setStatus(`Connected to ${roomName}`);
         const next: RoomItem = {
-          key: expectedKey,
+          key: payload.room.key,
           groupId: payload.room.groupId ?? current?.groupId ?? null,
           conversationId: payload.room.conversationId ?? current?.conversationId ?? null,
           name: roomName,
@@ -636,7 +719,7 @@ export default function ChatPage() {
           lastMessage: payload.messages.length > 0 ? summarizeMessage(payload.messages[payload.messages.length - 1].content) : current?.lastMessage ?? 'No messages yet',
           lastAt: payload.messages.length > 0 ? payload.messages[payload.messages.length - 1].createdAt : current?.lastAt,
         };
-        const filtered = prev.filter((room) => room.key !== expectedKey);
+        const filtered = prev.filter((room) => room.key !== payload.room.key);
         const seenKeys = new Set<string>();
         return [next, ...filtered].filter((r) => {
           if (seenKeys.has(r.key)) return false;
@@ -767,9 +850,13 @@ export default function ChatPage() {
     socket.on('read_receipt', (payload: { messageId: string; userId: number; status: 'DELIVERED' | 'READ'; username: string }) => {
       setMessages((prev) => prev.map((message) => {
         if (message.id !== payload.messageId) return message;
-        const exists = message.receipts.some((r) => r.userId === payload.userId && r.status === payload.status);
-        if (exists) return message;
-        return { ...message, receipts: [...message.receipts, payload] };
+        const STATUS_RANK: Record<string, number> = { DELIVERED: 1, READ: 2 };
+        const existingForUser = message.receipts.find((r) => r.userId === payload.userId);
+        // Skip if we already have an equal or higher-ranked status for this user
+        if (existingForUser && (STATUS_RANK[existingForUser.status] ?? 0) >= (STATUS_RANK[payload.status] ?? 0)) return message;
+        // Replace the existing receipt for this user (upgrade) or add new
+        const filtered = message.receipts.filter((r) => r.userId !== payload.userId);
+        return { ...message, receipts: [...filtered, payload] };
       }));
     });
     socket.on('reaction_update', (payload: { messageId: string; reactions: ChatMessage['reactions'] }) => {
@@ -897,7 +984,10 @@ export default function ChatPage() {
     });
     socket.on('error', (message: string) => { setStatus(message); });
     socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
-    socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
+    socket.on('disconnect', () => { setStatus('Disconnected'); setSocketStatus('reconnecting'); cleanupCall(); });
+    socket.io.on('reconnect_attempt', () => { setSocketStatus('reconnecting'); });
+    socket.io.on('reconnect_failed', () => { setSocketStatus('disconnected'); });
+    socket.io.on('error', () => { setSocketStatus('disconnected'); });
     socket.on('call_ended', (payload: { roomKey: string; reason?: string }) => {
       const roomKey = activeCallRoomKeyRef.current;
       if (roomKey) socket.emit('leave_group_call', { roomKey });
@@ -922,14 +1012,7 @@ export default function ChatPage() {
           ));
         }
         const seenKeys = new Set<string>();
-        return [...prev, {
-          key: payload.key,
-          groupId: payload.groupId,
-          conversationId: payload.conversationId,
-          name: payload.name || payload.key,
-          unread: 0,
-          lastMessage: 'No messages yet',
-        }].filter((r) => {
+        return [...prev, { key: payload.key, groupId: payload.groupId, conversationId: payload.conversationId, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }].filter((r) => {
           if (seenKeys.has(r.key)) return false;
           seenKeys.add(r.key);
           return true;
@@ -946,20 +1029,11 @@ export default function ChatPage() {
         setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
           const updatedGroups = dedupedMineData
-            .filter(g => nonDMKeys.has(g.key))
+            .filter(g => !g.key.startsWith('dm_'))
             .map((g) => {
               const existing = prev.find((r) => r.key === g.key);
-              return {
-                key: g.key,
-                groupId: g.groupId,
-                conversationId: g.conversationId,
-                name: g.name || g.key,
-                unread: existing?.unread ?? 0,
-                lastMessage: existing?.lastMessage ?? 'No messages yet',
-                lastAt: existing?.lastAt,
-              };
+              return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
             });
           const seenKeys = new Set<string>();
           const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
@@ -981,20 +1055,11 @@ export default function ChatPage() {
         setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
           const updatedGroups = dedupedMineData
-            .filter(g => nonDMKeys.has(g.key))
+            .filter(g => !g.key.startsWith('dm_'))
             .map((g) => {
               const existing = prev.find((r) => r.key === g.key);
-              return {
-                key: g.key,
-                groupId: g.groupId,
-                conversationId: g.conversationId,
-                name: g.name || g.key,
-                unread: existing?.unread ?? 0,
-                lastMessage: existing?.lastMessage ?? 'No messages yet',
-                lastAt: existing?.lastAt,
-              };
+              return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
             });
           const seenKeys = new Set<string>();
           const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
@@ -1022,11 +1087,13 @@ export default function ChatPage() {
         return g;
       }));
     });
-    socket.on('profile_picture_changed', (payload: { userId: number; username: string; profilePicture: string | null }) => {
+    socket.on('profile_picture_changed', (payload: { userId: number; profilePicture: string | null }) => {
       const { userId, profilePicture } = payload;
-      // Update current user's profile if it's their own picture
-      if (userId === profileRef.current?.userId) {
-        setProfile((prev) => prev ? { ...prev, profilePicture } : prev);
+      // Update onlineUsers with new profile picture
+      setOnlineUsers((prev) => prev.map((u) => u.userId === userId ? { ...u, profilePicture } : u));
+      // Update own profile if it's the current user
+      if (profileRef.current?.userId === userId) {
+        setProfile((p) => p ? { ...p, profilePicture } : p);
       }
       // Update messages from this user to include the new profile picture
       setMessages((prev) => prev.map((msg) => 
@@ -1038,6 +1105,9 @@ export default function ChatPage() {
     return () => {
       clearTimeout(connectTimer);
       cleanupCall();
+      Object.values(typingClearTimersRef.current).forEach(clearTimeout);
+      typingClearTimersRef.current = {};
+      if (typingDebounceRef.current) { clearTimeout(typingDebounceRef.current); typingDebounceRef.current = null; }
       socket.removeAllListeners();
       if (socket.connected) {
         socket.disconnect();
@@ -1053,8 +1123,16 @@ export default function ChatPage() {
       try {
         const response = await authFetch(`${API_URL}/call-history`);
         if (response.ok) {
-          const data = (await response.json()) as CallHistoryApiItem[];
-          setCallHistory(Array.isArray(data) ? data.map(toCallHistoryItem) : []);
+          const data = await response.json();
+          setCallHistory(data.map((c: { id: string; peerUserId: number; peerUsername: string; callType: string; callStatus: string; duration: number; createdAt: string }) => ({
+            id: c.id,
+            peerUserId: c.peerUserId,
+            peerUsername: c.peerUsername,
+            callType: c.callType as 'voice' | 'video',
+            callStatus: c.callStatus as 'completed' | 'missed' | 'rejected',
+            duration: c.duration,
+            createdAt: c.createdAt,
+          })));
         }
       } catch (err) {
         console.error('Failed to load call history', err);
@@ -1069,7 +1147,9 @@ export default function ChatPage() {
       ? (room.conversationId ?? roomKey)
       : (room?.groupId ?? room?.conversationId ?? roomKey);
 
-    router.push(`/chat/${navigateTo}`);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `/chat/${navigateTo}`);
+    }
 
     setActiveSection('chats');
     setMobileSection('chats');
@@ -1108,15 +1188,7 @@ export default function ChatPage() {
         const dmRooms = prev.filter(r => r.key.startsWith('dm_'));
         const updatedGroups = dedupedMineData.map((g) => {
           const existing = prev.find((r) => r.key === g.key);
-          return {
-            key: g.key,
-            groupId: g.groupId,
-            conversationId: g.conversationId,
-            name: g.name || g.key,
-            unread: existing?.unread ?? 0,
-            lastMessage: existing?.lastMessage ?? 'No messages yet',
-            lastAt: existing?.lastAt,
-          };
+          return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
         });
         const seenKeys = new Set<string>();
         return [...updatedGroups, ...dmRooms].filter((r) => {
@@ -1198,7 +1270,7 @@ export default function ChatPage() {
     });
     socket.emit('send_message', { roomKey: activeRoomKey, content: draft.trim(), replyToMessageId: replyTo?.id, tempId });
     setDraft(''); setReplyTo(null); socket.emit('typing', { roomKey: activeRoomKey, isTyping: false });
-    // Mark as failed if server doesn't confirm within 8 seconds.
+    // Mark as failed if server doesn't confirm within 8 seconds
     setTimeout(() => {
       if (pendingOptimisticsRef.current.has(tempId)) {
         pendingOptimisticsRef.current.delete(tempId);
@@ -1216,6 +1288,13 @@ export default function ChatPage() {
       if (response.ok) {
         const olderMessages = (await response.json()) as ChatMessage[];
         if (olderMessages.length > 0) {
+          // Capture scroll position before prepend so useLayoutEffect can restore it
+          if (scrollContainerRef.current) {
+            scrollRestoreRef.current = {
+              prevHeight: scrollContainerRef.current.scrollHeight,
+              prevTop: scrollContainerRef.current.scrollTop,
+            };
+          }
           setMessages(prev => {
             const existingIds = new Set(prev.map(m => m.id));
             const newMessages = olderMessages.reverse().filter(m => !existingIds.has(m.id));
@@ -1235,9 +1314,10 @@ export default function ChatPage() {
   const handleDraftChange = (value: string) => {
     setDraft(value);
     if (!socketRef.current) return;
-    socketRef.current.emit('typing', { roomKey: activeRoomRef.current, isTyping: true });
+    const roomKey = activeRoomRef.current;
+    socketRef.current.emit('typing', { roomKey, isTyping: true });
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
-    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomRef.current, isTyping: false }), 650);
+    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey, isTyping: false }), 650);
   };
 
   const handleMentionInsert = (username: string) => {
@@ -1256,7 +1336,8 @@ export default function ChatPage() {
       setUploadProgress(85);
       if (!response.ok) { setStatus('Upload failed'); return; }
       const uploaded = (await response.json()) as UploadedFileResponse;
-      socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: encodeAttachmentMessage(uploaded) });
+      const fileTempId = `__temp__${Date.now()}`;
+      socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: encodeAttachmentMessage(uploaded), tempId: fileTempId });
       setUploadProgress(100);
     } catch { setStatus('Upload failed'); }
     finally { setTimeout(() => { setUploadState('idle'); setUploadProgress(0); }, 250); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -1266,6 +1347,20 @@ export default function ChatPage() {
   const onReply = useCallback((message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); }, []);
   const onStartEdit = useCallback((message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); }, []);
   const onDelete = useCallback((message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); }, []);
+  const onRetry = useCallback((message: ChatMessage) => {
+    if (!socketRef.current || !profile) return;
+    const tempId = `__temp__${Date.now()}`;
+    const retryMsg: ChatMessage = { ...message, id: tempId, failed: false };
+    pendingOptimisticsRef.current.set(tempId, retryMsg);
+    setMessages((prev) => prev.map((m) => m.id === message.id ? retryMsg : m));
+    socketRef.current.emit('send_message', { roomKey: message.roomKey, content: message.content, replyToMessageId: message.replyTo?.id, tempId });
+    setTimeout(() => {
+      if (pendingOptimisticsRef.current.has(tempId)) {
+        pendingOptimisticsRef.current.delete(tempId);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, failed: true } : m));
+      }
+    }, 8000);
+  }, [profile]);
 
   const updateStatus = (status: UserStatus) => {
     setUserStatus(status);
@@ -1417,79 +1512,60 @@ export default function ChatPage() {
     }).catch(() => { cleanupCall(); setCallStatus('Could not access media devices'); });
   };
 
-  const [isOpeningDM, setIsOpeningDM] = useState(false);
-
   const handleContactClick = async (userId: number, username: string) => {
-    if (!profile || isOpeningDM) return;
+    if (!profile) return;
     const roomKey = `dm_${Math.min(userId, profile.userId)}_${Math.max(userId, profile.userId)}`;
-
-    const existingRoom = rooms.find(r => r.key === roomKey);
-    if (existingRoom && activeRoomKey === roomKey) {
-      setActiveSection('chats');
-      setMobileSection('chats');
-      setMobileChatOpen(true);
-      return;
-    }
-
-    setIsOpeningDM(true);
-    setStatus('Opening chat...');
+    
+    // Store original state for rollback
+    const originalActiveRoomKey = activeRoomKey;
+    const originalRooms = rooms;
+    
+    // Optimistic update
+    activeRoomRef.current = roomKey;
+    setActiveSection('chats');
+    setMobileSection('chats');
+    setMobileChatOpen(true);
+    setActiveRoomKey(roomKey);
+    setMessages([]);
+    
+    setRooms(prev => {
+      if (prev.some(r => r.key === roomKey)) return prev;
+      return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
+    });
 
     try {
-      let roomData: GroupSummary | null = null;
-
-      if (existingRoom) {
-        roomData = existingRoom as unknown as GroupSummary;
-      } else {
-        const response = await authFetch(`${API_URL}/groups/${roomKey}`);
-
-        if (response.ok) {
-          roomData = (await response.json()) as GroupSummary;
-        } else if (response.status === 404) {
-          const createResponse = await authFetch(`${API_URL}/groups`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
-          });
-          if (!createResponse.ok) {
-            throw new Error('Failed to create room');
-          }
-          roomData = (await createResponse.json()) as GroupSummary;
-        } else {
-          throw new Error('Failed to fetch room');
+      const response = await authFetch(`${API_URL}/groups/${roomKey}`);
+      if (response.ok) {
+        const groupData = await response.json();
+        if (groupData.conversationId) {
+          setRooms(prev => prev.map(r => r.key === roomKey ? { ...r, conversationId: groupData.conversationId, groupId: groupData.groupId ?? r.groupId } : r));
+          window.history.replaceState(null, '', `/chat/${groupData.conversationId}`);
         }
+      } else if (response.status === 404) {
+        const createResponse = await authFetch(`${API_URL}/groups`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
+        });
+        if (!createResponse.ok) {
+          throw new Error('Failed to create room');
+        }
+        const createdData = await createResponse.json();
+        if (createdData.conversationId) {
+          setRooms(prev => prev.map(r => r.key === roomKey ? { ...r, conversationId: createdData.conversationId, groupId: createdData.groupId ?? r.groupId } : r));
+          window.history.replaceState(null, '', `/chat/${createdData.conversationId}`);
+        }
+      } else {
+        throw new Error('Failed to fetch room');
       }
-
-      const finalRoomData = roomData!;
-      const newRoom: RoomItem = {
-        key: roomKey,
-        groupId: finalRoomData.groupId ?? null,
-        conversationId: finalRoomData.conversationId ?? null,
-        name: username,
-        unread: 0,
-        lastMessage: 'No messages yet',
-      };
-
-      activeRoomRef.current = roomKey;
-
-      setRooms(prev => {
-        const filtered = prev.filter(r => r.key !== roomKey);
-        return [newRoom, ...filtered];
-      });
-      setActiveSection('chats');
-      setMobileSection('chats');
-      setMobileChatOpen(true);
-      setActiveRoomKey(roomKey);
-      setMessages([]);
-      setParticipants([]);
-
       socketRef.current?.emit('join_room', { roomKey });
-
-      setStatus('Connected');
     } catch (err) {
       console.error('Failed to ensure DM room exists', err);
+      // Rollback UI state on failure
+      activeRoomRef.current = originalActiveRoomKey;
+      setActiveRoomKey(originalActiveRoomKey);
+      setRooms(originalRooms);
       setStatus('Failed to open chat');
-    } finally {
-      setIsOpeningDM(false);
     }
   };
 
@@ -1519,8 +1595,25 @@ export default function ChatPage() {
 
   const rejectCall = () => {
     if (!incomingCall || !socketRef.current) return;
-    socketRef.current.emit('reject_call', { targetUserId: incomingCall.fromUserId, reason: 'Call rejected' });
+    const rejected = incomingCall;
+    socketRef.current.emit('reject_call', { targetUserId: rejected.fromUserId, reason: 'Call rejected' });
     setIncomingCall(null); setCallStatus('Call rejected');
+    // Record rejected call in history
+    const newCall: CallHistoryItem = {
+      id: `call_${Date.now()}_${rejected.fromUserId}`,
+      peerUserId: rejected.fromUserId,
+      peerUsername: rejected.fromUsername,
+      callType: rejected.callType,
+      callStatus: 'rejected',
+      duration: 0,
+      createdAt: new Date().toISOString(),
+    };
+    authFetch(`${API_URL}/call-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerUserId: rejected.fromUserId, peerUsername: rejected.fromUsername, callType: rejected.callType, callStatus: 'rejected', duration: 0, roomKey: rejected.roomKey }),
+    }).catch(() => {});
+    setCallHistory(prev => [newCall, ...prev].slice(0, 50));
   };
 
   const endCall = async () => {
@@ -1528,43 +1621,31 @@ export default function ChatPage() {
     if (socketRef.current && roomKey) {
       socketRef.current.emit('leave_group_call', { roomKey });
     }
-    const peersFromParticipants = profile
-      ? participants
-        .filter((participant) => participant.userId !== profile.userId)
-        .map((participant) => ({ userId: participant.userId, username: participant.username, stream: null as MediaStream | null }))
-      : [];
-    const peersForHistory = (callPeers.length > 0 ? callPeers : peersFromParticipants)
-      .filter((peer, index, all) => all.findIndex((candidate) => candidate.userId === peer.userId) === index);
-
-    if (peersForHistory.length > 0) {
-      const duration = callStartedAt ? Math.floor((Date.now() - callStartedAt) / 1000) : 0;
-      const callStatusForSave: 'completed' | 'missed' = duration > 0 ? 'completed' : 'missed';
-      const roomKeyForSave = roomKey ?? activeRoomRef.current;
-
-      for (const peer of peersForHistory) {
-        try {
-          const response = await authFetch(`${API_URL}/call-history`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              peerUserId: peer.userId,
-              peerUsername: peer.username,
-              callType: activeCallType,
-              callStatus: callStatusForSave,
-              duration,
-              roomKey: roomKeyForSave,
-            }),
-          });
-
-          if (!response.ok) {
-            console.error('Failed to save call history', response.status, response.statusText);
-            continue;
+    if (callStartedAt) {
+      const duration = Math.floor((Date.now() - callStartedAt) / 1000);
+      const peersToRecord = callPeers.length > 0 ? callPeers : [];
+      const callStatus: CallHistoryItem['callStatus'] = callPeers.length === 0 ? 'missed' : duration > 0 ? 'completed' : 'missed';
+      if (peersToRecord.length > 0) {
+        for (const peer of peersToRecord) {
+          const newCall: CallHistoryItem = {
+            id: `call_${Date.now()}_${peer.userId}`,
+            peerUserId: peer.userId,
+            peerUsername: peer.username,
+            callType: activeCallType,
+            callStatus,
+            duration,
+            createdAt: new Date().toISOString(),
+          };
+          try {
+            await authFetch(`${API_URL}/call-history`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ peerUserId: peer.userId, peerUsername: peer.username, callType: activeCallType, callStatus, duration, roomKey: roomKey ?? '' }),
+            });
+          } catch (err) {
+            console.error('Failed to save call history', err);
           }
-
-          const savedEntry = (await response.json()) as CallHistoryApiItem;
-          setCallHistory((prev) => [toCallHistoryItem(savedEntry), ...prev].slice(0, 50));
-        } catch (err) {
-          console.error('Failed to save call history', err);
+          setCallHistory(prev => [newCall, ...prev].slice(0, 50));
         }
       }
     }
@@ -1926,6 +2007,39 @@ export default function ChatPage() {
 
             {/* Chat area: desktop = always flex, mobile = only when section=chats */}
             <div className={`${activeSection !== 'chats' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden`}>
+              {/* Connection status banner */}
+              {socketStatus !== 'connected' && (
+                <div className={`flex-shrink-0 flex items-center justify-center gap-2 py-1.5 px-4 text-xs font-medium transition-all ${
+                  socketStatus === 'reconnecting'
+                    ? darkMode ? 'bg-amber-600/80 text-amber-100' : 'bg-amber-400/90 text-amber-900'
+                    : darkMode ? 'bg-rose-700/80 text-rose-100' : 'bg-rose-500/90 text-white'
+                }`}>
+                  {socketStatus === 'reconnecting' ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Reconnecting...
+                    </>
+                  ) : socketStatus === 'connecting' ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                      No connection — check your internet
+                    </>
+                  )}
+                </div>
+              )}
               {/* Mobile chat list – shown on small screens when no conversation is open */}
               <div className={`${!mobileChatOpen ? 'flex' : 'hidden'} h-full flex-col md:hidden`}>
                 <ChatList
@@ -1958,9 +2072,11 @@ export default function ChatPage() {
                     onReply={onReply}
                     onStartEdit={onStartEdit}
                     onDelete={onDelete}
+                    onRetry={onRetry}
                     hasMoreMessages={hasMoreMessages}
                     loadingMoreMessages={loadingMoreMessages}
                     onLoadMore={loadOlderMessages}
+                    scrollContainerRef={scrollContainerRef}
                     onlineUsers={onlineUsers}
                     headerActions={
                       <>
@@ -2204,7 +2320,18 @@ export default function ChatPage() {
                             <span className="text-[11px] font-bold uppercase tracking-widest">{participants.length} Member{participants.length !== 1 ? 's' : ''}</span>
                           </div>
                           {participants.map((p) => (
-                            <div key={p.userId} className={`flex items-center justify-between px-4 py-2.5 transition-colors ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'}`}>
+                            <div
+                              key={p.userId}
+                              className={`flex items-center justify-between px-4 py-2.5 transition-colors ${
+                                p.userId !== profile.userId
+                                  ? darkMode ? 'hover:bg-[#202c33] cursor-pointer' : 'hover:bg-slate-50 cursor-pointer'
+                                  : ''
+                              }`}
+                              onClick={p.userId !== profile.userId ? () => {
+                                setShowGroupInfo(false);
+                                handleContactClick(p.userId, p.username);
+                              } : undefined}
+                            >
                               <div className="flex items-center gap-3 min-w-0">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br ${['from-blue-500 to-indigo-600','from-violet-500 to-purple-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600','from-amber-500 to-orange-600'][Math.abs(p.username.charCodeAt(0)) % 5]} flex-shrink-0`}>
                                   {p.username.charAt(0).toUpperCase()}
@@ -2215,7 +2342,7 @@ export default function ChatPage() {
                                 </div>
                               </div>
                               {canManageMembers && p.role !== 'owner' && p.username !== profile.username && (
-                                <button type="button" onClick={() => removeMember(p.username)} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); removeMember(p.username); }} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
                                   </svg>
@@ -2272,9 +2399,9 @@ export default function ChatPage() {
 
         {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
-          className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden transition-all duration-200 ${
-            mobileChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
-          } ${
+            className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden transition-all duration-200 ${
+              mobileChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+            } ${
             darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
           }`}
           style={{ backdropFilter: 'blur(24px)', paddingBottom: 'env(safe-area-inset-bottom)' }}

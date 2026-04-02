@@ -23,6 +23,7 @@ model User {
   username         String    @unique
   password         String
   role             UserRole  @default(user)
+  profilePicture   String?
   sessionJti       String?
   sessionCreatedAt DateTime?
   createdAt        DateTime  @default(now())
@@ -30,18 +31,22 @@ model User {
 }
 
 model ChatRoom {
-  id        String           @id @default(cuid())
-  key       String           @unique
-  name      String?
-  ownerUserId Int?
-  ownerUsername String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
-  messages  ChatMessage[]
-  members   ChatRoomMember[]
-  files     UploadedFile[]
+  id               String           @id @default(cuid())
+  key              String           @unique
+  name             String?
+  ownerUserId      Int?
+  ownerUsername    String?
+  groupId          String?           @unique
+  conversationId   String?           @unique
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  messages         ChatMessage[]
+  members          ChatRoomMember[]
+  files            UploadedFile[]
 
   @@index([ownerUserId])
+  @@index([groupId])
+  @@index([conversationId])
 }
 
 model ChatMessage {

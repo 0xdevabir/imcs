@@ -40,6 +40,7 @@ export type ChatMessage = {
   content: string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  failed?: boolean;
   createdAt: string;
   deliveredAt?: string | null;
   readAt?: string | null;

@@ -1,4 +1,4 @@
-import React, { RefObject, useMemo, useState } from 'react';
+import React, { RefObject, useCallback, useMemo, useState } from 'react';
 import { MessageBubble } from '../message-bubble/MessageBubble';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
@@ -17,9 +17,11 @@ interface ChatWindowProps {
   onReply: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
+  onRetry?: (message: ChatMessage) => void;
   hasMoreMessages?: boolean;
   loadingMoreMessages?: boolean;
   onLoadMore?: () => void;
+  scrollContainerRef?: RefObject<HTMLDivElement>;
   headerActions: React.ReactNode;
   composer: React.ReactNode;
   onBack?: () => void;
@@ -40,27 +42,51 @@ function formatDateLabel(dateStr: string): string {
   return d.toLocaleDateString([], { month: 'long', day: 'numeric', year: diff > 365 ? 'numeric' : undefined });
 }
 
+const GROUP_THRESHOLD_MS = 3 * 60 * 1000; // 3 minutes
+
 type MessageRow =
   | { type: 'date'; label: string; key: string }
-  | { type: 'message'; message: ChatMessage };
+  | { type: 'message'; message: ChatMessage; isGrouped: boolean };
 
 export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps) {
   const grad = avatarGradient(props.roomTitle);
   const isGroup = !props.roomKey.startsWith('dm_');
   const [messageSearch, setMessageSearch] = useState('');
 
+  const handleScrollToMessage = useCallback((messageId: string) => {
+    const container = props.scrollContainerRef?.current;
+    if (!container) return;
+    const el = container.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Brief highlight flash
+    el.style.transition = 'background-color 0.3s';
+    el.style.backgroundColor = 'rgba(0,168,132,0.18)';
+    setTimeout(() => { el.style.backgroundColor = ''; setTimeout(() => { el.style.transition = ''; }, 300); }, 800);
+  }, [props.scrollContainerRef]);
+
   const filteredRows = useMemo<MessageRow[]>(() => {
     const result: MessageRow[] = [];
     let lastDateStr = '';
     const searchLower = messageSearch.toLowerCase().trim();
+    let prevSenderId: number | null = null;
+    let prevCreatedAt: number = 0;
     for (const message of props.messages) {
       if (searchLower && !message.content.toLowerCase().includes(searchLower)) continue;
       const msgDateStr = new Date(message.createdAt).toDateString();
       if (msgDateStr !== lastDateStr) {
         lastDateStr = msgDateStr;
         result.push({ type: 'date', label: formatDateLabel(message.createdAt), key: `date-${msgDateStr}` });
+        prevSenderId = null; // date separator breaks grouping
+        prevCreatedAt = 0;
       }
-      result.push({ type: 'message', message });
+      const msgTime = new Date(message.createdAt).getTime();
+      const isGrouped =
+        prevSenderId === message.sender.userId &&
+        msgTime - prevCreatedAt < GROUP_THRESHOLD_MS;
+      prevSenderId = message.sender.userId;
+      prevCreatedAt = msgTime;
+      result.push({ type: 'message', message, isGrouped });
     }
     return result;
   }, [props.messages, messageSearch]);
@@ -137,7 +163,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
       </header>
 
       {/* Messages area */}
-      <div className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
+      <div ref={props.scrollContainerRef} className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 md:px-6 ${props.darkMode ? 'chat-bg-dark' : 'chat-bg-light'}`}>
         {props.messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-8 select-none">
             <div className={`w-16 h-16 rounded-full flex items-center justify-center mb-5 shadow-sm ${
@@ -207,12 +233,15 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
                   profile={props.profile}
                   darkMode={props.darkMode}
                   roomKey={props.roomKey}
+                  isGrouped={row.isGrouped}
                   participants={props.participants}
                   onReact={props.onReact}
                   onReply={props.onReply}
                   onStartEdit={props.onStartEdit}
                   onDelete={props.onDelete}
                   onlineUsers={props.onlineUsers}
+                  onScrollToMessage={handleScrollToMessage}
+                  onRetry={props.onRetry}
                 />
               )
             )}

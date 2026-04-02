@@ -1,6 +1,6 @@
 'use client';
 
-import React, { FormEvent, TouchEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { FormEvent, TouchEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
@@ -132,6 +132,7 @@ export default function ChatPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const [uploadState, setUploadState] = useState<'idle' | 'uploading'>('idle');
+  const [socketStatus, setSocketStatus] = useState<'connecting' | 'connected' | 'reconnecting' | 'disconnected'>('connecting');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [userStatus, setUserStatus] = useState<UserStatus>('available');
 
@@ -183,6 +184,10 @@ export default function ChatPage() {
   const roomsRef = useRef<RoomItem[]>([]);
   const pendingRoomCreationsRef = useRef<Set<string>>(new Set());
   const groupFetchVersionRef = useRef<number>(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const scrollRestoreRef = useRef<{ prevHeight: number; prevTop: number } | null>(null);
+  const roomDraftsRef = useRef<Map<string, string>>(new Map());
+  const draftRef = useRef('');
 
   const unreadTotal = useMemo(() => rooms.reduce((sum, room) => sum + room.unread, 0), [rooms]);
 
@@ -239,12 +244,13 @@ export default function ChatPage() {
   }, [typingUsers, activeRoomKey]);
 
   const activeRoomName = useMemo(() => {
+    const room = rooms.find((item) => item.key === activeRoomKey);
+    if (room?.name) return room.name;
     if (activeRoomKey.startsWith('dm_') && profile && participants.length > 0) {
       const other = participants.find((p) => Number(p.userId) !== Number(profile.userId));
       if (other) return other.username;
     }
-    const room = rooms.find((item) => item.key === activeRoomKey);
-    return room?.name ?? activeRoomKey;
+    return activeRoomKey;
   }, [rooms, activeRoomKey, participants, profile]);
 
   const mentionCandidates = useMemo(() => {
@@ -333,6 +339,7 @@ export default function ChatPage() {
   }, [contactSearchQuery, profile]);
 
   useEffect(() => { activeRoomRef.current = activeRoomKey; }, [activeRoomKey]);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { activeCallTypeRef.current = activeCallType; }, [activeCallType]);
   useEffect(() => { roomsRef.current = rooms; }, [rooms]);
   useEffect(() => {
@@ -343,8 +350,35 @@ export default function ChatPage() {
       pendingReadReceiptsRef.current.clear();
     }
   }, [activeRoomKey]);
+
+  // Save draft for the previous room and restore the draft for the new room when switching
+  const prevDraftRoomRef = useRef(activeRoomKey);
+  useEffect(() => {
+    const prevRoom = prevDraftRoomRef.current;
+    if (prevRoom === activeRoomKey) return;
+    // Save draft for the room we're leaving
+    roomDraftsRef.current.set(prevRoom, draftRef.current);
+    // Stop-typing for the room we're leaving
+    if (socketRef.current && draftRef.current.trim()) {
+      socketRef.current.emit('typing', { roomKey: prevRoom, isTyping: false });
+    }
+    prevDraftRoomRef.current = activeRoomKey;
+    // Restore saved draft for the new room
+    const savedDraft = roomDraftsRef.current.get(activeRoomKey) ?? '';
+    setDraft(savedDraft);
+  }, [activeRoomKey]);
+  // Restore scroll position after older messages are prepended
+  useLayoutEffect(() => {
+    if (scrollRestoreRef.current && scrollContainerRef.current) {
+      const { prevHeight, prevTop } = scrollRestoreRef.current;
+      scrollContainerRef.current.scrollTop = prevTop + (scrollContainerRef.current.scrollHeight - prevHeight);
+      scrollRestoreRef.current = null;
+    }
+  }, [messages]);
+
   const prevScrollRoomRef = useRef(activeRoomKey);
   useEffect(() => {
+    if (scrollRestoreRef.current) return; // skip auto-scroll-to-bottom when we're restoring position
     const switched = prevScrollRoomRef.current !== activeRoomKey;
     prevScrollRoomRef.current = activeRoomKey;
     messageEndRef.current?.scrollIntoView({ behavior: switched ? 'instant' : 'smooth' });
@@ -419,10 +453,6 @@ export default function ChatPage() {
       const deduped = dedupeParticipants(payload.participants);
       setParticipants(deduped);
       setCanManageMembers(payload.canManageMembers);
-      if (activeRoomKey.startsWith('dm_')) {
-        const other = deduped.find((p) => p.userId !== profile.userId);
-        if (other) setRooms((prev) => prev.map((r) => r.key === activeRoomKey ? { ...r, name: other.username } : r));
-      }
     };
     loadParticipants().catch(() => undefined);
   }, [profile, activeRoomKey]);
@@ -600,25 +630,46 @@ export default function ChatPage() {
     const token = getAuthToken();
     const socket = io(SOCKET_URL, { transports: ['websocket'], withCredentials: true, auth: { token } });
     socketRef.current = socket;
-    socket.on('connected', () => { setStatus('Connected with encrypted channel.'); socket.emit('join_room', { roomKey: activeRoomRef.current }); });
+    let hasConnectedOnce = false;
+    socket.on('connected', () => {
+      setStatus('Connected with encrypted channel.');
+      setSocketStatus('connected');
+      socket.emit('join_room', { roomKey: activeRoomRef.current });
+      if (hasConnectedOnce) {
+        // Reconnect — re-fetch groups/rooms so background unread counts are fresh
+        authFetch(`${API_URL}/groups/mine`).then(async (r) => {
+          if (!r.ok) return;
+          const mineData = (await r.json()) as GroupSummary[];
+          const deduped = mineData.filter((g, i, self) => self.findIndex(x => x.key === g.key) === i);
+          setGroups(deduped);
+          setRooms((prev) => deduped.map((g) => {
+            const existing = prev.find((r) => r.key === g.key);
+            return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+          }));
+        }).catch(() => {});
+      }
+      hasConnectedOnce = true;
+    });
     socket.on('online_users', (payload: { users?: OnlineUser[] }) => { const users = Array.isArray(payload.users) ? payload.users : []; setOnlineUsers(users.filter((u) => u.userId !== profileRef.current?.userId)); });
-    socket.on('room_joined', (payload: { room: { key: string; name?: string }; messages: ChatMessage[] }) => {
+    socket.on('room_joined', (payload: { room: { key: string; name?: string; groupId?: string | null; conversationId?: string | null }; messages: ChatMessage[] }) => {
       if (payload.room.key !== activeRoomRef.current) return;
       setActiveRoomKey(payload.room.key);
       setMessages(payload.messages);
       setTypingUsers({});
-      setStatus(`Connected to ${payload.room.name ?? payload.room.key}`);
       setRooms((prev) => {
         const current = prev.find((room) => room.key === payload.room.key);
         let roomName = payload.room.name || current?.name || payload.room.key;
-        if (payload.room.key.startsWith('dm_') && !current?.name) {
+        if (payload.room.key.startsWith('dm_')) {
           const otherParticipant = payload.messages.find((m) => Number(m.sender.userId) !== Number(profileRef.current?.userId));
           if (otherParticipant) {
             roomName = otherParticipant.sender.username;
           }
         }
+        setStatus(`Connected to ${roomName}`);
         const next: RoomItem = {
           key: payload.room.key,
+          groupId: payload.room.groupId ?? current?.groupId ?? null,
+          conversationId: payload.room.conversationId ?? current?.conversationId ?? null,
           name: roomName,
           unread: 0,
           lastMessage: payload.messages.length > 0 ? summarizeMessage(payload.messages[payload.messages.length - 1].content) : current?.lastMessage ?? 'No messages yet',
@@ -677,6 +728,8 @@ export default function ChatPage() {
         }
         const nextRoom: RoomItem = {
           key: message.roomKey,
+          groupId: current?.groupId ?? null,
+          conversationId: current?.conversationId ?? null,
           name,
           unread: message.roomKey === activeRoomRef.current || message.sender.userId === profileRef.current?.userId ? 0 : (current?.unread ?? 0) + 1,
           lastMessage: summarizeMessage(message.content),
@@ -731,9 +784,13 @@ export default function ChatPage() {
     socket.on('read_receipt', (payload: { messageId: string; userId: number; status: 'DELIVERED' | 'READ'; username: string }) => {
       setMessages((prev) => prev.map((message) => {
         if (message.id !== payload.messageId) return message;
-        const exists = message.receipts.some((r) => r.userId === payload.userId && r.status === payload.status);
-        if (exists) return message;
-        return { ...message, receipts: [...message.receipts, payload] };
+        const STATUS_RANK: Record<string, number> = { DELIVERED: 1, READ: 2 };
+        const existingForUser = message.receipts.find((r) => r.userId === payload.userId);
+        // Skip if we already have an equal or higher-ranked status for this user
+        if (existingForUser && (STATUS_RANK[existingForUser.status] ?? 0) >= (STATUS_RANK[payload.status] ?? 0)) return message;
+        // Replace the existing receipt for this user (upgrade) or add new
+        const filtered = message.receipts.filter((r) => r.userId !== payload.userId);
+        return { ...message, receipts: [...filtered, payload] };
       }));
     });
     socket.on('reaction_update', (payload: { messageId: string; reactions: ChatMessage['reactions'] }) => {
@@ -861,7 +918,10 @@ export default function ChatPage() {
     });
     socket.on('error', (message: string) => { setStatus(message); });
     socket.on('session_invalidated', () => { cleanupCall(); setSessionKicked(true); });
-    socket.on('disconnect', () => { setStatus('Disconnected'); cleanupCall(); });
+    socket.on('disconnect', () => { setStatus('Disconnected'); setSocketStatus('reconnecting'); cleanupCall(); });
+    socket.io.on('reconnect_attempt', () => { setSocketStatus('reconnecting'); });
+    socket.io.on('reconnect_failed', () => { setSocketStatus('disconnected'); });
+    socket.io.on('error', () => { setSocketStatus('disconnected'); });
     socket.on('call_ended', (payload: { roomKey: string; reason?: string }) => {
       const roomKey = activeCallRoomKeyRef.current;
       if (roomKey) socket.emit('leave_group_call', { roomKey });
@@ -872,7 +932,19 @@ export default function ChatPage() {
       if (pendingRoomCreationsRef.current.has(payload.key)) return; // room is being created by ensureDirectRoomForTarget
       setGroups((prev) => { if (prev.some((g) => g.key === payload.key)) return prev; return [...prev, payload]; });
       setRooms((prev) => {
-        if (prev.some((r) => r.key === payload.key)) return prev;
+        const existing = prev.find((r) => r.key === payload.key);
+        if (existing) {
+          return prev.map((room) => (
+            room.key === payload.key
+              ? {
+                  ...room,
+                  groupId: payload.groupId ?? room.groupId ?? null,
+                  conversationId: payload.conversationId ?? room.conversationId ?? null,
+                  name: payload.name || room.name,
+                }
+              : room
+          ));
+        }
         const seenKeys = new Set<string>();
         return [...prev, { key: payload.key, groupId: payload.groupId, conversationId: payload.conversationId, name: payload.name || payload.key, unread: 0, lastMessage: 'No messages yet' }].filter((r) => {
           if (seenKeys.has(r.key)) return false;
@@ -951,6 +1023,9 @@ export default function ChatPage() {
     });
     return () => {
       cleanupCall();
+      Object.values(typingClearTimersRef.current).forEach(clearTimeout);
+      typingClearTimersRef.current = {};
+      if (typingDebounceRef.current) { clearTimeout(typingDebounceRef.current); typingDebounceRef.current = null; }
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
@@ -984,13 +1059,9 @@ export default function ChatPage() {
 
   const openRoom = (roomKey: string) => {
     const room = rooms.find((r) => r.key === roomKey);
-    let navigateTo: string = roomKey;
-
-    if (room?.groupId) {
-      navigateTo = room.groupId;
-    } else if (room?.conversationId) {
-      navigateTo = room.conversationId;
-    }
+    const navigateTo = room?.key.startsWith('dm_')
+      ? (room.conversationId ?? roomKey)
+      : (room?.groupId ?? room?.conversationId ?? roomKey);
 
     if (router) {
       router.push(`/chat/${navigateTo}`);
@@ -1115,6 +1186,13 @@ export default function ChatPage() {
     });
     socket.emit('send_message', { roomKey: activeRoomKey, content: draft.trim(), replyToMessageId: replyTo?.id, tempId });
     setDraft(''); setReplyTo(null); socket.emit('typing', { roomKey: activeRoomKey, isTyping: false });
+    // Mark as failed if server doesn't confirm within 8 seconds
+    setTimeout(() => {
+      if (pendingOptimisticsRef.current.has(tempId)) {
+        pendingOptimisticsRef.current.delete(tempId);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, failed: true } : m));
+      }
+    }, 8000);
   };
 
   const loadOlderMessages = async () => {
@@ -1126,6 +1204,13 @@ export default function ChatPage() {
       if (response.ok) {
         const olderMessages = (await response.json()) as ChatMessage[];
         if (olderMessages.length > 0) {
+          // Capture scroll position before prepend so useLayoutEffect can restore it
+          if (scrollContainerRef.current) {
+            scrollRestoreRef.current = {
+              prevHeight: scrollContainerRef.current.scrollHeight,
+              prevTop: scrollContainerRef.current.scrollTop,
+            };
+          }
           setMessages(prev => {
             const existingIds = new Set(prev.map(m => m.id));
             const newMessages = olderMessages.reverse().filter(m => !existingIds.has(m.id));
@@ -1145,9 +1230,10 @@ export default function ChatPage() {
   const handleDraftChange = (value: string) => {
     setDraft(value);
     if (!socketRef.current) return;
-    socketRef.current.emit('typing', { roomKey: activeRoomRef.current, isTyping: true });
+    const roomKey = activeRoomRef.current;
+    socketRef.current.emit('typing', { roomKey, isTyping: true });
     if (typingDebounceRef.current) clearTimeout(typingDebounceRef.current);
-    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey: activeRoomRef.current, isTyping: false }), 650);
+    typingDebounceRef.current = setTimeout(() => socketRef.current?.emit('typing', { roomKey, isTyping: false }), 650);
   };
 
   const handleMentionInsert = (username: string) => {
@@ -1166,7 +1252,8 @@ export default function ChatPage() {
       setUploadProgress(85);
       if (!response.ok) { setStatus('Upload failed'); return; }
       const uploaded = (await response.json()) as UploadedFileResponse;
-      socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: encodeAttachmentMessage(uploaded) });
+      const fileTempId = `__temp__${Date.now()}`;
+      socketRef.current.emit('send_message', { roomKey: activeRoomKey, content: encodeAttachmentMessage(uploaded), tempId: fileTempId });
       setUploadProgress(100);
     } catch { setStatus('Upload failed'); }
     finally { setTimeout(() => { setUploadState('idle'); setUploadProgress(0); }, 250); if (fileInputRef.current) fileInputRef.current.value = ''; }
@@ -1176,6 +1263,20 @@ export default function ChatPage() {
   const onReply = useCallback((message: ChatMessage) => { setReplyTo(message); setEditingMessage(null); }, []);
   const onStartEdit = useCallback((message: ChatMessage) => { setEditingMessage(message); setReplyTo(null); setDraft(message.content); }, []);
   const onDelete = useCallback((message: ChatMessage) => { socketRef.current?.emit('delete_message', { messageId: message.id }); }, []);
+  const onRetry = useCallback((message: ChatMessage) => {
+    if (!socketRef.current || !profile) return;
+    const tempId = `__temp__${Date.now()}`;
+    const retryMsg: ChatMessage = { ...message, id: tempId, failed: false };
+    pendingOptimisticsRef.current.set(tempId, retryMsg);
+    setMessages((prev) => prev.map((m) => m.id === message.id ? retryMsg : m));
+    socketRef.current.emit('send_message', { roomKey: message.roomKey, content: message.content, replyToMessageId: message.replyTo?.id, tempId });
+    setTimeout(() => {
+      if (pendingOptimisticsRef.current.has(tempId)) {
+        pendingOptimisticsRef.current.delete(tempId);
+        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, failed: true } : m));
+      }
+    }, 8000);
+  }, [profile]);
 
   const updateStatus = (status: UserStatus) => {
     setUserStatus(status);
@@ -1212,7 +1313,15 @@ export default function ChatPage() {
             .filter(g => nonDMKeys.has(g.key))
             .map((g) => {
               const existing = prev.find((r) => r.key === g.key);
-              return { key: g.key, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
+              return {
+                key: g.key,
+                groupId: g.groupId,
+                conversationId: g.conversationId,
+                name: g.name || g.key,
+                unread: existing?.unread ?? 0,
+                lastMessage: existing?.lastMessage ?? 'No messages yet',
+                lastAt: existing?.lastAt,
+              };
             });
           const seenKeys = new Set<string>();
           const deduped = [...updatedGroups, ...dmRooms].filter((r) => {
@@ -1402,8 +1511,25 @@ export default function ChatPage() {
 
   const rejectCall = () => {
     if (!incomingCall || !socketRef.current) return;
-    socketRef.current.emit('reject_call', { targetUserId: incomingCall.fromUserId, reason: 'Call rejected' });
+    const rejected = incomingCall;
+    socketRef.current.emit('reject_call', { targetUserId: rejected.fromUserId, reason: 'Call rejected' });
     setIncomingCall(null); setCallStatus('Call rejected');
+    // Record rejected call in history
+    const newCall: CallHistoryItem = {
+      id: `call_${Date.now()}_${rejected.fromUserId}`,
+      peerUserId: rejected.fromUserId,
+      peerUsername: rejected.fromUsername,
+      callType: rejected.callType,
+      callStatus: 'rejected',
+      duration: 0,
+      createdAt: new Date().toISOString(),
+    };
+    authFetch(`${API_URL}/call-history`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ peerUserId: rejected.fromUserId, peerUsername: rejected.fromUsername, callType: rejected.callType, callStatus: 'rejected', duration: 0, roomKey: rejected.roomKey }),
+    }).catch(() => {});
+    setCallHistory(prev => [newCall, ...prev].slice(0, 50));
   };
 
   const endCall = async () => {
@@ -1411,36 +1537,32 @@ export default function ChatPage() {
     if (socketRef.current && roomKey) {
       socketRef.current.emit('leave_group_call', { roomKey });
     }
-    if (callStartedAt && callPeers.length > 0) {
+    if (callStartedAt) {
       const duration = Math.floor((Date.now() - callStartedAt) / 1000);
-      for (const peer of callPeers) {
-        const newCall: CallHistoryItem = {
-          id: `call_${Date.now()}_${peer.userId}`,
-          peerUserId: peer.userId,
-          peerUsername: peer.username,
-          callType: activeCallType,
-          callStatus: duration > 0 ? 'completed' : 'missed',
-          duration,
-          createdAt: new Date().toISOString(),
-        };
-        // Save to database
-        try {
-          await authFetch(`${API_URL}/call-history`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              peerUserId: peer.userId,
-              peerUsername: peer.username,
-              callType: activeCallType,
-              callStatus: duration > 0 ? 'completed' : 'missed',
-              duration,
-              roomKey: roomKey ?? '',
-            }),
-          });
-        } catch (err) {
-          console.error('Failed to save call history', err);
+      const peersToRecord = callPeers.length > 0 ? callPeers : [];
+      const callStatus: CallHistoryItem['callStatus'] = callPeers.length === 0 ? 'missed' : duration > 0 ? 'completed' : 'missed';
+      if (peersToRecord.length > 0) {
+        for (const peer of peersToRecord) {
+          const newCall: CallHistoryItem = {
+            id: `call_${Date.now()}_${peer.userId}`,
+            peerUserId: peer.userId,
+            peerUsername: peer.username,
+            callType: activeCallType,
+            callStatus,
+            duration,
+            createdAt: new Date().toISOString(),
+          };
+          try {
+            await authFetch(`${API_URL}/call-history`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ peerUserId: peer.userId, peerUsername: peer.username, callType: activeCallType, callStatus, duration, roomKey: roomKey ?? '' }),
+            });
+          } catch (err) {
+            console.error('Failed to save call history', err);
+          }
+          setCallHistory(prev => [newCall, ...prev].slice(0, 50));
         }
-        setCallHistory(prev => [newCall, ...prev].slice(0, 50));
       }
     }
     cleanupCall();
@@ -1799,6 +1921,39 @@ export default function ChatPage() {
 
             {/* Chat area: desktop = always flex, mobile = only when section=chats */}
             <div className={`${activeSection !== 'chats' ? 'hidden md:flex' : 'flex'} flex-1 flex-col overflow-hidden`}>
+              {/* Connection status banner */}
+              {socketStatus !== 'connected' && (
+                <div className={`flex-shrink-0 flex items-center justify-center gap-2 py-1.5 px-4 text-xs font-medium transition-all ${
+                  socketStatus === 'reconnecting'
+                    ? darkMode ? 'bg-amber-600/80 text-amber-100' : 'bg-amber-400/90 text-amber-900'
+                    : darkMode ? 'bg-rose-700/80 text-rose-100' : 'bg-rose-500/90 text-white'
+                }`}>
+                  {socketStatus === 'reconnecting' ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Reconnecting...
+                    </>
+                  ) : socketStatus === 'connecting' ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                      </svg>
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                      </svg>
+                      No connection — check your internet
+                    </>
+                  )}
+                </div>
+              )}
               {/* Mobile chat list – shown on small screens when no conversation is open */}
               <div className={`${!mobileChatOpen ? 'flex' : 'hidden'} h-full flex-col md:hidden`}>
                 <ChatList
@@ -1831,9 +1986,11 @@ export default function ChatPage() {
                     onReply={onReply}
                     onStartEdit={onStartEdit}
                     onDelete={onDelete}
+                    onRetry={onRetry}
                     hasMoreMessages={hasMoreMessages}
                     loadingMoreMessages={loadingMoreMessages}
                     onLoadMore={loadOlderMessages}
+                    scrollContainerRef={scrollContainerRef}
                     onlineUsers={onlineUsers}
                     headerActions={
                       <>
@@ -2077,7 +2234,18 @@ export default function ChatPage() {
                             <span className="text-[11px] font-bold uppercase tracking-widest">{participants.length} Member{participants.length !== 1 ? 's' : ''}</span>
                           </div>
                           {participants.map((p) => (
-                            <div key={p.userId} className={`flex items-center justify-between px-4 py-2.5 transition-colors ${darkMode ? 'hover:bg-[#202c33]' : 'hover:bg-slate-50'}`}>
+                            <div
+                              key={p.userId}
+                              className={`flex items-center justify-between px-4 py-2.5 transition-colors ${
+                                p.userId !== profile.userId
+                                  ? darkMode ? 'hover:bg-[#202c33] cursor-pointer' : 'hover:bg-slate-50 cursor-pointer'
+                                  : ''
+                              }`}
+                              onClick={p.userId !== profile.userId ? () => {
+                                setShowGroupInfo(false);
+                                handleContactClick(p.userId, p.username);
+                              } : undefined}
+                            >
                               <div className="flex items-center gap-3 min-w-0">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white bg-gradient-to-br ${['from-blue-500 to-indigo-600','from-violet-500 to-purple-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600','from-amber-500 to-orange-600'][Math.abs(p.username.charCodeAt(0)) % 5]} flex-shrink-0`}>
                                   {p.username.charAt(0).toUpperCase()}
@@ -2088,7 +2256,7 @@ export default function ChatPage() {
                                 </div>
                               </div>
                               {canManageMembers && p.role !== 'owner' && p.username !== profile.username && (
-                                <button type="button" onClick={() => removeMember(p.username)} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); removeMember(p.username); }} className="text-rose-500 hover:text-rose-400 flex-shrink-0 ml-2 p-1 rounded-full hover:bg-rose-500/10 transition-colors">
                                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6" />
                                   </svg>

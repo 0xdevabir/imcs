@@ -953,6 +953,19 @@ export default function ChatPage() {
         return g;
       }));
     });
+    socket.on('profile_picture_changed', (payload: { userId: number; username: string; profilePicture: string | null }) => {
+      const { userId, profilePicture } = payload;
+      // Update current user's profile if it's their own picture
+      if (userId === profileRef.current?.userId) {
+        setProfile((prev) => prev ? { ...prev, profilePicture } : prev);
+      }
+      // Update messages from this user to include the new profile picture
+      setMessages((prev) => prev.map((msg) => 
+        msg.sender.userId === userId 
+          ? { ...msg, sender: { ...msg.sender, profilePicture } }
+          : msg
+      ));
+    });
     return () => {
       cleanupCall();
       socket.removeAllListeners();
@@ -1722,10 +1735,11 @@ export default function ChatPage() {
                 {/* Settings — profile overview in middle panel */}
                 <div className={panelCls} style={panelStyle('settings')}>
                   <ProfileView
-                    profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                    profile={profile ?? { userId: 0, username: '', role: 'user', profilePicture: null }}
                     darkMode={darkMode}
                     onOpenSettings={() => setShowSettings(true)}
                     onLogout={handleLogout}
+                    onProfilePictureChange={(newPic) => setProfile((p) => p ? { ...p, profilePicture: newPic } : p)}
                   />
                 </div>
                 {/* Meetings */}
@@ -1774,10 +1788,11 @@ export default function ChatPage() {
                       }`}
                     >
                       <ProfileView
-                        profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                        profile={profile ?? { userId: 0, username: '', role: 'user', profilePicture: null }}
                         darkMode={darkMode}
                         onOpenSettings={() => setShowSettings(true)}
                         onLogout={handleLogout}
+                        onProfilePictureChange={(newPic) => setProfile((p) => p ? { ...p, profilePicture: newPic } : p)}
                       />
                     </div>
                     <div

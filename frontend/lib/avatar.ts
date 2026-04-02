@@ -19,3 +19,22 @@ export function avatarGradient(name: string): string {
   gradientCache.set(name, result);
   return result;
 }
+
+export type AvatarData = {
+  username: string;
+  profilePicture?: string | null;
+};
+
+/**
+ * Check if user has a profile picture
+ */
+export function hasProfilePicture(data: AvatarData): boolean {
+  return !!data.profilePicture;
+}
+
+/**
+ * Get profile picture URL or null
+ */
+export function getProfilePictureUrl(data: AvatarData): string | null {
+  return data.profilePicture || null;
+}

@@ -1,4 +1,5 @@
 import React, { useRef, useState, useMemo } from 'react';
+import Image from 'next/image';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
 
@@ -39,7 +40,7 @@ interface MessageBubbleProps {
   onReply: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
-  onlineUsers?: { userId: number; username: string; status: string }[];
+  onlineUsers?: { userId: number; username: string; status: string; profilePicture?: string | null }[];
   onScrollToMessage?: (messageId: string) => void;
   onRetry?: (message: ChatMessage) => void;
 }
@@ -93,6 +94,15 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
     return props.onlineUsers.some(u => u.userId === props.message.sender.userId);
   }, [props.onlineUsers, props.message.sender.userId]);
 
+  // Get profile picture from onlineUsers or message sender
+  const senderProfilePicture = useMemo(() => {
+    // First check onlineUsers for the most up-to-date profile picture
+    const onlineUser = props.onlineUsers?.find(u => u.userId === props.message.sender.userId);
+    if (onlineUser?.profilePicture) return onlineUser.profilePicture;
+    // Fall back to message sender's profile picture
+    return props.message.sender.profilePicture || null;
+  }, [props.onlineUsers, props.message.sender.userId, props.message.sender.profilePicture]);
+
   const attachment = useMemo(
     () => parseAttachmentMessage(props.message.content),
     [props.message.content],
@@ -127,9 +137,20 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
     >
       {/* Sender avatar (non-mine, group chats) — hidden for grouped follow-ups */}
       {!isMine && isGroup && !grouped && (
-        <div className={`flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-xs font-bold text-white self-end mb-5`}>
-          {props.message.sender.username.charAt(0).toUpperCase()}
-        </div>
+        senderProfilePicture ? (
+          <Image
+            src={senderProfilePicture}
+            alt={props.message.sender.username}
+            width={28}
+            height={28}
+            className="flex-shrink-0 w-7 h-7 rounded-full object-cover self-end mb-5"
+            unoptimized
+          />
+        ) : (
+          <div className={`flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-xs font-bold text-white self-end mb-5`}>
+            {props.message.sender.username.charAt(0).toUpperCase()}
+          </div>
+        )
       )}
       {/* Spacer that matches avatar width for aligned follow-up messages */}
       {!isMine && isGroup && grouped && <div className="flex-shrink-0 w-7" />}

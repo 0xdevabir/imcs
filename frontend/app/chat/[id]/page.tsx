@@ -1021,6 +1021,21 @@ export default function ChatPage() {
         return g;
       }));
     });
+    socket.on('profile_picture_changed', (payload: { userId: number; profilePicture: string | null }) => {
+      const { userId, profilePicture } = payload;
+      // Update onlineUsers with new profile picture
+      setOnlineUsers((prev) => prev.map((u) => u.userId === userId ? { ...u, profilePicture } : u));
+      // Update own profile if it's the current user
+      if (profileRef.current?.userId === userId) {
+        setProfile((p) => p ? { ...p, profilePicture } : p);
+      }
+      // Update messages from this user to include the new profile picture
+      setMessages((prev) => prev.map((msg) => 
+        msg.sender.userId === userId 
+          ? { ...msg, sender: { ...msg.sender, profilePicture } }
+          : msg
+      ));
+    });
     return () => {
       cleanupCall();
       Object.values(typingClearTimersRef.current).forEach(clearTimeout);
@@ -1811,10 +1826,11 @@ export default function ChatPage() {
                 {/* Settings — profile overview in middle panel */}
                 <div className={panelCls} style={panelStyle('settings')}>
                   <ProfileView
-                    profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                    profile={profile ?? { userId: 0, username: '', role: 'user', profilePicture: null }}
                     darkMode={darkMode}
                     onOpenSettings={() => setShowSettings(true)}
                     onLogout={handleLogout}
+                    onProfilePictureChange={(newPic) => setProfile((p) => p ? { ...p, profilePicture: newPic } : p)}
                   />
                 </div>
                 {/* Meetings */}
@@ -1863,10 +1879,11 @@ export default function ChatPage() {
                       }`}
                     >
                       <ProfileView
-                        profile={profile ?? { userId: 0, username: '', role: 'user' }}
+                        profile={profile ?? { userId: 0, username: '', role: 'user', profilePicture: null }}
                         darkMode={darkMode}
                         onOpenSettings={() => setShowSettings(true)}
                         onLogout={handleLogout}
+                        onProfilePictureChange={(newPic) => setProfile((p) => p ? { ...p, profilePicture: newPic } : p)}
                       />
                     </div>
                     <div

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import Image from 'next/image';
 import { authFetch } from '@/lib/config';
 import { OnlineUser, SearchedUser, UserStatus } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
@@ -103,6 +104,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
 
   const isOnline = (userId: number) => props.onlineUsers.some((u) => u.userId === userId);
   const getStatus = (userId: number) => props.onlineUsers.find((u) => u.userId === userId)?.status;
+  const getProfilePicture = (userId: number) => props.onlineUsers.find((u) => u.userId === userId)?.profilePicture;
 
   const isSearching = props.searchQuery.trim().length >= 1;
   const otherUsers = props.allUsers.filter((u) => u.userId !== props.currentUserId);
@@ -203,6 +205,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
                   user={user}
                   isOnline={isOnline(user.userId)}
                   onlineStatus={getStatus(user.userId)}
+                  profilePicture={getProfilePicture(user.userId) || user.profilePicture}
                   isAdded={addedIds.includes(user.userId)}
                   darkMode={props.darkMode}
                   onMessage={() => props.onContactClick(user.userId, user.username)}
@@ -227,6 +230,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
                     user={user}
                     isOnline={isOnline(user.userId)}
                     onlineStatus={getStatus(user.userId)}
+                    profilePicture={getProfilePicture(user.userId) || user.profilePicture}
                     isAdded={true}
                     darkMode={props.darkMode}
                     onMessage={() => props.onContactClick(user.userId, user.username)}
@@ -247,9 +251,10 @@ export function ContactsPanel(props: ContactsPanelProps) {
                 {onlineOthers.map((u) => (
                   <ContactRow
                     key={u.userId}
-                    user={{ userId: u.userId, username: u.username, role: 'user' }}
+                    user={{ userId: u.userId, username: u.username, role: 'user', profilePicture: u.profilePicture }}
                     isOnline={true}
                     onlineStatus={u.status}
+                    profilePicture={u.profilePicture}
                     isAdded={false}
                     darkMode={props.darkMode}
                     onMessage={() => props.onContactClick(u.userId, u.username)}
@@ -271,6 +276,7 @@ export function ContactsPanel(props: ContactsPanelProps) {
                     key={user.userId}
                     user={user}
                     isOnline={false}
+                    profilePicture={user.profilePicture}
                     isAdded={addedIds.includes(user.userId)}
                     darkMode={props.darkMode}
                     onMessage={() => props.onContactClick(user.userId, user.username)}
@@ -336,6 +342,7 @@ interface ContactRowProps {
   user: SearchedUser;
   isOnline: boolean;
   onlineStatus?: UserStatus;
+  profilePicture?: string | null;
   isAdded: boolean;
   darkMode: boolean;
   onMessage: () => void;
@@ -356,9 +363,22 @@ function ContactRow(props: ContactRowProps) {
         <button
           type="button"
           onClick={props.onMessage}
-          className={`w-11 h-11 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white shadow-sm`}
+          className="w-11 h-11 rounded-full overflow-hidden shadow-sm"
         >
-          {props.user.username.charAt(0).toUpperCase()}
+          {props.profilePicture || props.user.profilePicture ? (
+            <Image
+              src={props.profilePicture || props.user.profilePicture!}
+              alt={props.user.username}
+              width={44}
+              height={44}
+              className="w-11 h-11 object-cover"
+              unoptimized
+            />
+          ) : (
+            <div className={`w-11 h-11 bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white`}>
+              {props.user.username.charAt(0).toUpperCase()}
+            </div>
+          )}
         </button>
         <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 ${
           props.darkMode ? 'border-[#111b21]' : 'border-white'
@@ -605,9 +625,20 @@ function AddContactModal({ darkMode, addedIds, currentUserId, apiUrl, onAdd, onC
               <div className={`flex items-center gap-3 rounded-xl px-4 py-3 ${
                 darkMode ? 'bg-[#111b21] ring-1 ring-white/5' : 'bg-slate-50 ring-1 ring-slate-200'
               }`}>
-                <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(result.username)} flex items-center justify-center text-sm font-bold text-white flex-shrink-0`}>
-                  {result.username.charAt(0).toUpperCase()}
-                </div>
+                {result.profilePicture ? (
+                  <Image
+                    src={result.profilePicture}
+                    alt={result.username}
+                    width={40}
+                    height={40}
+                    className="w-10 h-10 rounded-full object-cover flex-shrink-0"
+                    unoptimized
+                  />
+                ) : (
+                  <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(result.username)} flex items-center justify-center text-sm font-bold text-white flex-shrink-0`}>
+                    {result.username.charAt(0).toUpperCase()}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-semibold ${darkMode ? 'text-[#e9edef]' : 'text-slate-900'}`}>
                     {result.username}

@@ -23,6 +23,7 @@ model User {
   username         String    @unique
   password         String
   role             UserRole  @default(user)
+  profilePicture   String?
   sessionJti       String?
   sessionCreatedAt DateTime?
   createdAt        DateTime  @default(now())

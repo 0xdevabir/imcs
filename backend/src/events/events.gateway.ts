@@ -35,6 +35,7 @@ type OnlineUser = {
   userId: number;
   username: string;
   status: UserStatus;
+  profilePicture: string | null;
 };
 
 const allowedFrontendOrigins = [
@@ -157,6 +158,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     } catch (error) {
       console.error('Failed to broadcast username change:', error);
     }
+  }
+
+  /** Broadcast profile_picture_changed event to all connected clients */
+  broadcastProfilePictureChanged(userId: number, username: string, profilePictureUrl: string | null) {
+    this.server.emit('profile_picture_changed', {
+      userId,
+      username,
+      profilePicture: profilePictureUrl,
+    });
+    // Also refresh the online users list so profile pictures are updated
+    this.emitOnlineUsers();
   }
 
   handleDisconnect(client: Socket) {
@@ -903,7 +915,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     return ids ? [...ids] : [];
   }
 
-  private emitOnlineUsers() {
+  private async emitOnlineUsers() {
     const onlineUsers: OnlineUser[] = [];
 
     for (const [userId, socketIds] of this.socketsByUserId.entries()) {
@@ -917,7 +929,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const user = socket?.data?.user as AuthenticatedUser | undefined;
       if (!user) continue;
 
-      onlineUsers.push({ userId, username: user.username, status });
+      // Fetch profile picture for each online user
+      const profilePicture = await this.usersService.getProfilePicture(userId);
+
+      onlineUsers.push({ userId, username: user.username, status, profilePicture });
     }
 
     onlineUsers.sort((a, b) => a.username.localeCompare(b.username));

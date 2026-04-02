@@ -4,6 +4,7 @@ export type Profile = {
   userId: number;
   username: string;
   role: 'admin' | 'user';
+  profilePicture: string | null;
 };
 
 export type Receipt = {
@@ -36,6 +37,7 @@ export type ChatMessage = {
   sender: {
     userId: number;
     username: string;
+    profilePicture?: string | null;
   };
   content: string;
   isEdited?: boolean;
@@ -56,6 +58,7 @@ export type OnlineUser = {
   userId: number;
   username: string;
   status: UserStatus;
+  profilePicture: string | null;
 };
 
 export type GroupParticipant = {
@@ -109,6 +112,7 @@ export type SearchedUser = {
   userId: number;
   username: string;
   role: 'admin' | 'user';
+  profilePicture?: string | null;
 };
 
 export type AttachmentPayload = {

@@ -15,6 +15,16 @@ function resolveSameSite() {
   return 'lax';
 }
 
+function buildProfilePictureUrl(
+  request: { protocol: string; get: (name: string) => string | undefined },
+  fileName: string | null,
+): string | null {
+  if (!fileName) return null;
+  const host = request.get('host') ?? 'localhost:3001';
+  const protocol = request.protocol ?? 'http';
+  return `${protocol}://${host}/files/${fileName}`;
+}
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -62,8 +72,18 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('profile')
-  getProfile(@Request() request: { user: { userId: number; username: string; role: 'admin' | 'user' } }) {
-    return request.user;
+  async getProfile(
+    @Request() request: {
+      user: { userId: number; username: string; role: 'admin' | 'user' };
+      protocol: string;
+      get: (name: string) => string | undefined;
+    },
+  ) {
+    const profilePicFileName = await this.usersService.getProfilePicture(request.user.userId);
+    return {
+      ...request.user,
+      profilePicture: buildProfilePictureUrl(request, profilePicFileName),
+    };
   }
 
   @UseGuards(JwtAuthGuard)

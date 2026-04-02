@@ -240,6 +240,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const hasAccess = await this.eventsService.userHasRoomAccess({
       roomKey: resolvedRoomKey,
       userId: user.userId,
@@ -251,8 +252,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     await client.join(room.key);
     const messages = await this.eventsService.getRecentMessages(room.key);
+    const displayName = await this.eventsService.getDisplayNameForUser({
+      roomId: room.id,
+      roomKey: room.key,
+      fallbackName: room.name,
+      userId: user.userId,
+    });
 
-    client.emit('room_joined', { room: { key: room.key, name: room.name, groupId: room.groupId, conversationId: room.conversationId }, messages });
+    client.emit('room_joined', { room: { key: room.key, name: displayName, groupId: room.groupId, conversationId: room.conversationId }, messages });
   }
 
   @SubscribeMessage('leave_room')
@@ -271,6 +278,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const room = await this.eventsService.getRoomByKey(roomKey);
     if (!room) {
       client.emit('error', 'Group not found');
@@ -310,6 +318,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const room = await this.eventsService.getRoomByKey(roomKey);
     if (!room) {
       client.emit('error', 'Group not found');
@@ -374,6 +383,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) return;
     const hasAccess = await this.eventsService.userHasRoomAccess({
       roomKey,
       userId: user.userId,
@@ -400,10 +410,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const user = this.getUser(client);
+    if (!user) return;
     const receipt = await this.eventsService.acknowledgeReceipt({
       messageId,
       status,
-      user: this.getUser(client),
+      user,
     });
 
     if (!receipt) return;
@@ -422,10 +434,12 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
 
+    const user = this.getUser(client);
+    if (!user) return;
     const updated = await this.eventsService.toggleReaction({
       messageId,
       emoji,
-      user: this.getUser(client),
+      user,
     });
 
     if (!updated) {
@@ -445,6 +459,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { targetUserId?: number; targetUsername?: string; roomKey?: string; callType?: 'voice' | 'video' },
   ) {
     const from = this.getUser(client);
+    if (!from) { client.emit('error', 'Unauthorized'); return; }
     let targetUserId: number | undefined;
     let targetUsername: string | undefined;
 
@@ -541,6 +556,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { roomKey?: string; callType?: 'voice' | 'video' },
   ) {
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
     if (!this.isValidRoomKey(roomKey)) return;
@@ -580,6 +596,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { roomKey?: string; callType?: 'voice' | 'video' },
   ) {
     const user = this.getUser(client);
+    if (!user) return;
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
     if (!this.isValidRoomKey(roomKey)) return;
@@ -619,6 +636,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { roomKey?: string },
   ) {
     const user = this.getUser(client);
+    if (!user) return;
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
     if (!this.isValidRoomKey(roomKey)) return;
@@ -659,6 +677,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { targetUserId?: number },
   ) {
     const user = this.getUser(client);
+    if (!user) return;
     const targetUserId = Number(body?.targetUserId);
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return;
@@ -685,6 +704,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @MessageBody() body: { targetUserId?: number; reason?: string },
   ) {
     const user = this.getUser(client);
+    if (!user) return;
     const targetUserId = Number(body?.targetUserId);
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return;
@@ -710,6 +730,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const user = this.getUser(client);
+    if (!user) return;
     const targetUserId = Number(body?.targetUserId);
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return;
@@ -734,6 +755,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const user = this.getUser(client);
+    if (!user) return;
     const targetUserId = Number(body?.targetUserId);
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return;
@@ -758,6 +780,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return;
     }
     const user = this.getUser(client);
+    if (!user) return;
     const targetUserId = Number(body?.targetUserId);
     if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
       return;
@@ -789,6 +812,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const result = await this.eventsService.editMessage({ messageId, content, userId: user.userId });
     if (!result) {
       client.emit('error', 'Cannot edit this message');
@@ -814,6 +838,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const user = this.getUser(client);
+    if (!user) { client.emit('error', 'Unauthorized'); return; }
     const result = await this.eventsService.deleteMessage({
       messageId,
       userId: user.userId,
@@ -837,12 +862,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     if (!status || !['available', 'dnd', 'invisible'].includes(status)) return;
 
     const user = this.getUser(client);
+    if (!user) return;
     this.userStatusMap.set(user.userId, status);
     this.emitOnlineUsers();
   }
 
-  private getUser(client: Socket): AuthenticatedUser {
-    return client.data.user as AuthenticatedUser;
+  private getUser(client: Socket): AuthenticatedUser | undefined {
+    return client.data.user as AuthenticatedUser | undefined;
   }
 
   private isValidRoomKey(roomKey: string): boolean {

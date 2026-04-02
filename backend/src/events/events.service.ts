@@ -27,6 +27,69 @@ type MessageReactionView = {
 export class EventsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private async ensureRoomIdentifier(room: {
+    id: string;
+    key: string;
+    name: string | null;
+    groupId: string | null;
+    conversationId: string | null;
+  }) {
+    const isDirectRoom = room.key.startsWith('dm_');
+
+    if (isDirectRoom) {
+      if (room.conversationId && !room.groupId) {
+        return room;
+      }
+
+      return this.prisma.chatRoom.update({
+        where: { id: room.id },
+        data: {
+          conversationId: room.conversationId ?? `cnv_${randomUUID()}`,
+          groupId: null,
+        },
+      });
+    }
+
+    if (room.groupId && !room.conversationId) {
+      return room;
+    }
+
+    return this.prisma.chatRoom.update({
+      where: { id: room.id },
+      data: {
+        groupId: room.groupId ?? `grp_${randomUUID()}`,
+        conversationId: null,
+      },
+    });
+  }
+
+  private extractPeerUserIdFromRoomKey(roomKey: string, viewerUserId: number): number | null {
+    if (!roomKey.startsWith('dm_')) {
+      return null;
+    }
+
+    const parts = roomKey.split('_');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const first = Number(parts[1]);
+    const second = Number(parts[2]);
+    if (!Number.isInteger(first) || !Number.isInteger(second)) {
+      return null;
+    }
+
+    if (first === viewerUserId) {
+      return second;
+    }
+
+    if (second === viewerUserId) {
+      return first;
+    }
+
+    return first;
+  }
+
   private mapMessage(
     row: {
       id: string;
@@ -76,20 +139,8 @@ export class EventsService {
 
   async ensureRoom(roomKey: string, roomName?: string) {
     const isDM = roomKey.startsWith('dm_');
-    
-    const existing = await this.prisma.chatRoom.findUnique({ where: { key: roomKey } });
-    
-    if (existing && isDM && !existing.conversationId) {
-      return this.prisma.chatRoom.update({
-        where: { id: existing.id },
-        data: {
-          name: roomName ?? existing.name,
-          conversationId: `cnv_${randomUUID()}`,
-        },
-      });
-    }
-    
-    return this.prisma.chatRoom.upsert({
+
+    const room = await this.prisma.chatRoom.upsert({
       where: { key: roomKey },
       update: {
         name: roomName ?? undefined,
@@ -97,27 +148,49 @@ export class EventsService {
       create: {
         key: roomKey,
         name: roomName,
-        ...(isDM ? { conversationId: `cnv_${randomUUID()}` } : {}),
+        ...(isDM
+          ? { conversationId: `cnv_${randomUUID()}` }
+          : { groupId: `grp_${randomUUID()}` }),
       },
     });
+
+    return this.ensureRoomIdentifier(room);
   }
 
   async getRoomByKey(roomKey: string) {
-    return this.prisma.chatRoom.findUnique({
+    const room = await this.prisma.chatRoom.findUnique({
       where: { key: roomKey },
     });
+
+    if (!room) {
+      return null;
+    }
+
+    return this.ensureRoomIdentifier(room);
   }
 
   async findRoomByConversationId(conversationId: string) {
-    return this.prisma.chatRoom.findUnique({
+    const room = await this.prisma.chatRoom.findUnique({
       where: { conversationId },
     });
+
+    if (!room) {
+      return null;
+    }
+
+    return this.ensureRoomIdentifier(room);
   }
 
   async findRoomByGroupId(groupId: string) {
-    return this.prisma.chatRoom.findUnique({
+    const room = await this.prisma.chatRoom.findUnique({
       where: { groupId },
     });
+
+    if (!room) {
+      return null;
+    }
+
+    return this.ensureRoomIdentifier(room);
   }
 
   async getRoomParticipantUsernames(roomKey: string) {
@@ -137,6 +210,44 @@ export class EventsService {
     }
 
     return room.members.map((member) => member.username);
+  }
+
+  async getDisplayNameForUser(input: {
+    roomId: string;
+    roomKey: string;
+    fallbackName: string | null;
+    userId: number;
+  }) {
+    const fallback = input.fallbackName ?? input.roomKey;
+    if (!input.roomKey.startsWith('dm_')) {
+      return fallback;
+    }
+
+    const members = await this.prisma.chatRoomMember.findMany({
+      where: { roomId: input.roomId },
+      select: {
+        userId: true,
+        username: true,
+      },
+    });
+
+    const other = members.find((member) => member.userId !== input.userId);
+    if (other) {
+      return other.username;
+    }
+
+    const peerUserId = this.extractPeerUserIdFromRoomKey(input.roomKey, input.userId);
+    if (peerUserId !== null) {
+      const peer = await this.prisma.user.findUnique({
+        where: { id: peerUserId },
+        select: { username: true },
+      });
+      if (peer?.username) {
+        return peer.username;
+      }
+    }
+
+    return fallback;
   }
 
   async ensureRoomMembership(input: { roomKey: string; roomName?: string; user: Sender }) {

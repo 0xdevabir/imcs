@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { ChatMessage, GroupParticipant, Profile } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
 
@@ -33,12 +33,15 @@ interface MessageBubbleProps {
   profile: Profile;
   darkMode: boolean;
   roomKey: string;
+  isGrouped?: boolean;
   participants: GroupParticipant[];
   onReact: (messageId: string, emoji: string) => void;
   onReply: (message: ChatMessage) => void;
   onStartEdit: (message: ChatMessage) => void;
   onDelete: (message: ChatMessage) => void;
   onlineUsers?: { userId: number; username: string; status: string }[];
+  onScrollToMessage?: (messageId: string) => void;
+  onRetry?: (message: ChatMessage) => void;
 }
 
 const quickReactions = ['👍', '❤️', '😂', '🔥', '👏', '🎉'];
@@ -49,19 +52,41 @@ function areEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
     prev.profile.userId === next.profile.userId &&
     prev.darkMode === next.darkMode &&
     prev.roomKey === next.roomKey &&
+    prev.isGrouped === next.isGrouped &&
     prev.participants === next.participants &&
     prev.onlineUsers === next.onlineUsers &&
     prev.onReact === next.onReact &&
     prev.onReply === next.onReply &&
     prev.onStartEdit === next.onStartEdit &&
-    prev.onDelete === next.onDelete
+    prev.onDelete === next.onDelete &&
+    prev.onScrollToMessage === next.onScrollToMessage &&
+    prev.onRetry === next.onRetry
   );
 }
 
 export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const isMine = props.message.sender.userId === props.profile.userId;
   const isGroup = !props.roomKey.startsWith('dm_');
+  const grouped = props.isGrouped ?? false;
   const grad = avatarGradient(props.message.sender.username);
+
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchMovedRef = useRef(false);
+
+  const handleTouchStart = () => {
+    touchMovedRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      if (!touchMovedRef.current) setSheetOpen(true);
+    }, 500);
+  };
+  const handleTouchEnd = () => {
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  };
+  const handleTouchMove = () => {
+    touchMovedRef.current = true;
+    if (longPressTimerRef.current) { clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
+  };
 
   const isSenderOnline = useMemo(() => {
     if (!props.onlineUsers) return false;
@@ -93,19 +118,27 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
   );
 
   return (
-    <div className={`message-appear flex items-end gap-2 py-0.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-      {/* Sender avatar (non-mine, group chats) */}
-      {!isMine && isGroup && (
+    <div
+      data-message-id={props.message.id}
+      className={`message-appear flex items-end gap-2 ${grouped ? 'pt-0.5' : 'pt-1.5'} pb-0 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchMove={handleTouchMove}
+    >
+      {/* Sender avatar (non-mine, group chats) — hidden for grouped follow-ups */}
+      {!isMine && isGroup && !grouped && (
         <div className={`flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-xs font-bold text-white self-end mb-5`}>
           {props.message.sender.username.charAt(0).toUpperCase()}
         </div>
       )}
+      {/* Spacer that matches avatar width for aligned follow-up messages */}
+      {!isMine && isGroup && grouped && <div className="flex-shrink-0 w-7" />}
       {/* Spacer to align non-group non-mine messages */}
       {!isMine && !isGroup && <div className="w-0" />}
 
       <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'} max-w-[80%] md:max-w-[65%]`}>
-        {/* Sender name for group chats */}
-        {!isMine && isGroup && (
+        {/* Sender name for group chats — hidden for grouped follow-ups */}
+        {!isMine && isGroup && !grouped && (
           <p className={`text-[12px] font-semibold mb-1 ml-1 flex items-center gap-1.5 ${props.darkMode ? 'text-[#00a884]' : 'text-[#008069]'}`}>
             <span>{props.message.sender.username}</span>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isSenderOnline ? 'bg-emerald-500' : 'bg-slate-400'}`} />
@@ -205,7 +238,12 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
             {/* Reply quote */}
             {props.message.replyTo && (
               <div className="px-3.5 pt-3 pb-0">
-                <div className={`rounded-lg border-l-[3px] px-2.5 py-2 text-xs ${
+                <div
+                  role={props.onScrollToMessage ? 'button' : undefined}
+                  tabIndex={props.onScrollToMessage ? 0 : undefined}
+                  onClick={props.onScrollToMessage ? () => props.onScrollToMessage!(props.message.replyTo!.id) : undefined}
+                  onKeyDown={props.onScrollToMessage ? (e) => { if (e.key === 'Enter' || e.key === ' ') props.onScrollToMessage!(props.message.replyTo!.id); } : undefined}
+                  className={`rounded-lg border-l-[3px] px-2.5 py-2 text-xs ${props.onScrollToMessage ? 'cursor-pointer hover:brightness-95 active:brightness-90 transition-all' : ''} ${
                   isMine
                     ? props.darkMode
                       ? 'border-[#00a884] bg-[#025144]'
@@ -276,29 +314,131 @@ export const MessageBubble = React.memo(function MessageBubble(props: MessageBub
 
             {/* Timestamp + status */}
             <div className={`flex items-center gap-1.5 px-3.5 pb-2.5 ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <span className={`text-[11px] ${
-                isMine
-                  ? props.darkMode ? 'text-[#8696a0]' : 'text-[#54656f]'
-                  : props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
-              }`}>
-                {timestamp}
-              </span>
-              {props.message.isEdited && !props.message.isDeleted && (
-                <span className={`text-[10px] italic ${
-                  props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
-                }`}>
-                  edited
-                </span>
-              )}
-              {isMine && (
-                <span>
-                  {messageStatus(props.message, props.profile)}
-                </span>
+              {props.message.failed ? (
+                <button
+                  type="button"
+                  onClick={() => props.onRetry?.(props.message)}
+                  className="flex items-center gap-1 text-[11px] text-rose-500 hover:text-rose-400 transition-colors"
+                  title="Failed to send — tap to retry"
+                >
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                  </svg>
+                  Failed · Retry
+                </button>
+              ) : (
+                <>
+                  <span className={`text-[11px] ${
+                    isMine
+                      ? props.darkMode ? 'text-[#8696a0]' : 'text-[#54656f]'
+                      : props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
+                  }`}>
+                    {timestamp}
+                  </span>
+                  {props.message.isEdited && !props.message.isDeleted && (
+                    <span className={`text-[10px] italic ${
+                      props.darkMode ? 'text-[#8696a0]' : 'text-[#667781]'
+                    }`}>
+                      edited
+                    </span>
+                  )}
+                  {isMine && (
+                    <span>
+                      {messageStatus(props.message, props.profile)}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Mobile long-press action sheet */}
+      {sheetOpen && (
+        <div className="fixed inset-0 z-50 flex items-end md:hidden" onClick={() => setSheetOpen(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className={`relative w-full rounded-t-2xl pb-safe overflow-hidden animate-slide-up ${props.darkMode ? 'bg-[#1d2b32]' : 'bg-white'}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Quick reactions */}
+            <div className={`flex items-center justify-around px-4 py-3 border-b ${props.darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+              {quickReactions.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => { props.onReact(props.message.id, emoji); setSheetOpen(false); }}
+                  className="text-2xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 active:scale-90 transition-all"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+            {/* Action list */}
+            <div className="py-1">
+              {!props.message.isDeleted && (
+                <button
+                  type="button"
+                  onClick={() => { props.onReply(props.message); setSheetOpen(false); }}
+                  className={`w-full flex items-center gap-4 px-5 py-3.5 text-sm font-medium transition-colors ${props.darkMode ? 'text-slate-200 hover:bg-white/5' : 'text-slate-800 hover:bg-slate-50'}`}
+                >
+                  <svg className="w-5 h-5 flex-shrink-0 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                  Reply
+                </button>
+              )}
+              {!props.message.isDeleted && (
+                <button
+                  type="button"
+                  onClick={() => { navigator.clipboard.writeText(props.message.content).catch(() => {}); setSheetOpen(false); }}
+                  className={`w-full flex items-center gap-4 px-5 py-3.5 text-sm font-medium transition-colors ${props.darkMode ? 'text-slate-200 hover:bg-white/5' : 'text-slate-800 hover:bg-slate-50'}`}
+                >
+                  <svg className="w-5 h-5 flex-shrink-0 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Copy
+                </button>
+              )}
+              {isMine && !props.message.isDeleted && (
+                <button
+                  type="button"
+                  onClick={() => { props.onStartEdit(props.message); setSheetOpen(false); }}
+                  className={`w-full flex items-center gap-4 px-5 py-3.5 text-sm font-medium transition-colors ${props.darkMode ? 'text-slate-200 hover:bg-white/5' : 'text-slate-800 hover:bg-slate-50'}`}
+                >
+                  <svg className="w-5 h-5 flex-shrink-0 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Edit
+                </button>
+              )}
+              {isMine && (
+                <button
+                  type="button"
+                  onClick={() => { props.onDelete(props.message); setSheetOpen(false); }}
+                  className="w-full flex items-center gap-4 px-5 py-3.5 text-sm font-medium text-rose-500 transition-colors hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                >
+                  <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete
+                </button>
+              )}
+            </div>
+            {/* Cancel */}
+            <div className={`border-t px-4 pt-1 pb-3 ${props.darkMode ? 'border-white/5' : 'border-slate-100'}`}>
+              <button
+                type="button"
+                onClick={() => setSheetOpen(false)}
+                className={`w-full py-3 rounded-xl text-sm font-semibold transition-colors ${props.darkMode ? 'bg-white/5 text-slate-300 hover:bg-white/10' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }, areEqual);

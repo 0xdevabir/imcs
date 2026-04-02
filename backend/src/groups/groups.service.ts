@@ -8,7 +8,6 @@ import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from '../users/users.service';
 import { EventsGateway } from '../events/events.gateway';
-import { Server } from 'socket.io';
 
 type RequestUser = {
   userId: number;
@@ -29,6 +28,7 @@ type ParticipantView = {
 type GroupSummary = {
   key: string;
   groupId: string | null;
+  conversationId: string | null;
   name: string;
   ownerUserId: number | null;
   ownerUsername: string | null;
@@ -152,6 +152,118 @@ export class GroupsService {
     };
   }
 
+  private async ensureIdentifiersForRoom(input: {
+    id: string;
+    key: string;
+    groupId: string | null;
+    conversationId: string | null;
+  }) {
+    const isDirectRoom = input.key.startsWith('dm_');
+
+    if (isDirectRoom && input.conversationId && !input.groupId) {
+      return {
+        groupId: input.groupId,
+        conversationId: input.conversationId,
+      };
+    }
+
+    if (!isDirectRoom && input.groupId && !input.conversationId) {
+      return {
+        groupId: input.groupId,
+        conversationId: input.conversationId,
+      };
+    }
+
+    return this.prisma.chatRoom.update({
+      where: { id: input.id },
+      data: isDirectRoom
+        ? {
+            conversationId: input.conversationId ?? `cnv_${randomUUID()}`,
+            groupId: null,
+          }
+        : {
+            groupId: input.groupId ?? `grp_${randomUUID()}`,
+            conversationId: null,
+          },
+      select: {
+        groupId: true,
+        conversationId: true,
+      },
+    });
+  }
+
+  private extractPeerUserIdFromRoomKey(roomKey: string, viewerUserId: number): number | null {
+    if (!roomKey.startsWith('dm_')) {
+      return null;
+    }
+
+    const parts = roomKey.split('_');
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const first = Number(parts[1]);
+    const second = Number(parts[2]);
+    if (!Number.isInteger(first) || !Number.isInteger(second)) {
+      return null;
+    }
+
+    if (first === viewerUserId) {
+      return second;
+    }
+
+    if (second === viewerUserId) {
+      return first;
+    }
+
+    return first;
+  }
+
+  private async resolveRoomDisplayNameForUser(input: {
+    key: string;
+    fallbackName: string | null;
+    members: Array<{ userId: number; username: string }>;
+    viewerUserId: number;
+  }) {
+    if (!input.key.startsWith('dm_')) {
+      return input.fallbackName ?? input.key;
+    }
+
+    const other = input.members.find((member) => member.userId !== input.viewerUserId);
+    if (other) {
+      return other.username;
+    }
+
+    const peerUserId = this.extractPeerUserIdFromRoomKey(input.key, input.viewerUserId);
+    if (peerUserId !== null) {
+      const peer = await this.prisma.user.findUnique({
+        where: { id: peerUserId },
+        select: { username: true },
+      });
+      if (peer?.username) {
+        return peer.username;
+      }
+    }
+
+    return input.fallbackName ?? input.key;
+  }
+
+  private emitGroupUpdate(event: string, data: unknown, userIds: number[]) {
+    const server = this.eventsGateway.server;
+    if (!server) return;
+
+    for (const userId of userIds) {
+      const socketIds = this.getSocketIdsForUser(userId);
+      for (const socketId of socketIds) {
+        server.to(socketId).emit(event, data);
+      }
+    }
+  }
+
+  private getSocketIdsForUser(userId: number): string[] {
+    return this.eventsGateway.getSocketIdsForUser(userId);
+  }
+
   async createGroup(input: {
     key: string;
     name?: string;
@@ -159,10 +271,43 @@ export class GroupsService {
     creator: RequestUser;
   }) {
     const key = this.normalizeKey(input.key);
+    const isDirectRoom = key.startsWith('dm_');
 
-    const existing = await this.prisma.chatRoom.findUnique({ where: { key } });
+    const existing = await this.prisma.chatRoom.findUnique({
+      where: { key },
+      include: {
+        members: {
+          orderBy: { username: 'asc' },
+        },
+      },
+    });
+
     if (existing) {
-      throw new ConflictException('Group key already exists');
+      if (!isDirectRoom) {
+        throw new ConflictException('Group key already exists');
+      }
+
+      const identifiers = await this.ensureIdentifiersForRoom({
+        id: existing.id,
+        key: existing.key,
+        groupId: existing.groupId,
+        conversationId: existing.conversationId,
+      });
+
+      return {
+        key: existing.key,
+        groupId: identifiers.groupId,
+        conversationId: identifiers.conversationId,
+        name: await this.resolveRoomDisplayNameForUser({
+          key: existing.key,
+          fallbackName: existing.name,
+          members: existing.members,
+          viewerUserId: input.creator.userId,
+        }),
+        ownerUserId: existing.ownerUserId,
+        ownerUsername: existing.ownerUsername,
+        participants: await Promise.all(existing.members.map((member) => this.toParticipantView(existing, member))),
+      };
     }
 
     const trimmedName = input.name?.trim() ?? '';
@@ -194,7 +339,9 @@ export class GroupsService {
           name: trimmedName || key,
           ownerUserId: input.creator.userId,
           ownerUsername: input.creator.username,
-          groupId: `grp_${randomUUID()}`,
+          ...(isDirectRoom
+            ? { conversationId: `cnv_${randomUUID()}` }
+            : { groupId: `grp_${randomUUID()}` }),
         },
       });
 
@@ -227,34 +374,44 @@ export class GroupsService {
       });
     });
 
-    const groupPayload = {
+    const groupPayloadBase = {
       key: created.key,
       groupId: created.groupId,
-      name: created.name,
+      conversationId: created.conversationId,
       ownerUserId: created.ownerUserId,
       ownerUsername: created.ownerUsername,
       participants: await Promise.all(created.members.map((member) => this.toParticipantView(created, member))),
     };
 
-    this.emitGroupUpdate('group_created', groupPayload, created.members.map(m => m.userId));
-
-    return groupPayload;
-  }
-
-  private emitGroupUpdate(event: string, data: unknown, userIds: number[]) {
-    const server = this.eventsGateway.server;
-    if (!server) return;
-
-    for (const userId of userIds) {
-      const socketIds = this.getSocketIdsForUser(userId);
-      for (const socketId of socketIds) {
-        server.to(socketId).emit(event, data);
+    if (isDirectRoom) {
+      for (const member of created.members) {
+        const personalized = {
+          ...groupPayloadBase,
+          name: await this.resolveRoomDisplayNameForUser({
+            key: created.key,
+            fallbackName: created.name,
+            members: created.members,
+            viewerUserId: member.userId,
+          }),
+        };
+        this.emitGroupUpdate('group_created', personalized, [member.userId]);
       }
+    } else {
+      this.emitGroupUpdate('group_created', {
+        ...groupPayloadBase,
+        name: created.name,
+      }, created.members.map((m) => m.userId));
     }
-  }
 
-  private getSocketIdsForUser(userId: number): string[] {
-    return this.eventsGateway.getSocketIdsForUser(userId);
+    return {
+      ...groupPayloadBase,
+      name: await this.resolveRoomDisplayNameForUser({
+        key: created.key,
+        fallbackName: created.name,
+        members: created.members,
+        viewerUserId: input.creator.userId,
+      }),
+    };
   }
 
   async listGroupsForUser(user: RequestUser) {
@@ -277,34 +434,78 @@ export class GroupsService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return groups.map((group) => {
-      let name = group.name ?? group.key;
-      if (group.key.startsWith('dm_') && group.members.length === 2) {
-        const other = group.members.find((m) => m.userId !== user.userId);
-        if (other) name = other.username;
-      }
-      return {
+    return Promise.all(groups.map(async (group): Promise<GroupSummary> => {
+      const identifiers = await this.ensureIdentifiersForRoom({
+        id: group.id,
         key: group.key,
         groupId: group.groupId,
         conversationId: group.conversationId,
-        name,
+      });
+
+      return {
+        key: group.key,
+        groupId: identifiers.groupId,
+        conversationId: identifiers.conversationId,
+        name: await this.resolveRoomDisplayNameForUser({
+          key: group.key,
+          fallbackName: group.name,
+          members: group.members,
+          viewerUserId: user.userId,
+        }),
         ownerUserId: group.ownerUserId,
         ownerUsername: group.ownerUsername,
         participantCount: group.members.length,
         participants: group.members,
       };
+    }));
+  }
+
+  async getGroupByKey(roomKey: string, user: RequestUser) {
+    const group = await this.assertMemberOrAdmin(this.normalizeKey(roomKey), user);
+    const identifiers = await this.ensureIdentifiersForRoom({
+      id: group.id,
+      key: group.key,
+      groupId: group.groupId,
+      conversationId: group.conversationId,
     });
+
+    return {
+      key: group.key,
+      groupId: identifiers.groupId,
+      conversationId: identifiers.conversationId,
+      name: await this.resolveRoomDisplayNameForUser({
+        key: group.key,
+        fallbackName: group.name,
+        members: group.members,
+        viewerUserId: user.userId,
+      }),
+      ownerUserId: group.ownerUserId,
+      ownerUsername: group.ownerUsername,
+      participantCount: group.members.length,
+      participants: group.members,
+    };
   }
 
   async getParticipants(roomKey: string, user: RequestUser) {
     const group = await this.assertMemberOrAdmin(this.normalizeKey(roomKey), user);
+    const identifiers = await this.ensureIdentifiersForRoom({
+      id: group.id,
+      key: group.key,
+      groupId: group.groupId,
+      conversationId: group.conversationId,
+    });
 
     return {
       group: {
         key: group.key,
-        groupId: group.groupId,
-        conversationId: group.conversationId,
-        name: group.name,
+        groupId: identifiers.groupId,
+        conversationId: identifiers.conversationId,
+        name: await this.resolveRoomDisplayNameForUser({
+          key: group.key,
+          fallbackName: group.name,
+          members: group.members,
+          viewerUserId: user.userId,
+        }),
         ownerUserId: group.ownerUserId,
         ownerUsername: group.ownerUsername,
       },
@@ -315,6 +516,12 @@ export class GroupsService {
 
   async addUserToGroup(input: { roomKey: string; username: string; actor: RequestUser }) {
     const group = await this.assertCanManageMembers(this.normalizeKey(input.roomKey), input.actor);
+    const identifiers = await this.ensureIdentifiersForRoom({
+      id: group.id,
+      key: group.key,
+      groupId: group.groupId,
+      conversationId: group.conversationId,
+    });
 
     const user = await this.resolveUserIdentity(input.username.trim());
     if (!user) {
@@ -339,18 +546,16 @@ export class GroupsService {
     });
 
     const result = await this.getParticipants(group.key, input.actor);
-    
-    const allMemberIds = [...group.members.map(m => m.userId), user.userId];
+
+    const allMemberIds = [...group.members.map((m) => m.userId), user.userId];
     this.emitGroupUpdate('group_member_added', {
       key: group.key,
-      groupId: group.groupId,
-      conversationId: group.conversationId,
+      groupId: identifiers.groupId,
+      conversationId: identifiers.conversationId,
       name: group.name,
-      addedUser: user.username
+      addedUser: user.username,
     }, allMemberIds);
 
-    // Make the newly added user's active sockets join the Socket.io room
-    // so they immediately receive messages broadcast to this room
     const server = this.eventsGateway.server;
     if (server) {
       for (const socketId of this.getSocketIdsForUser(user.userId)) {
@@ -363,6 +568,12 @@ export class GroupsService {
 
   async removeUserFromGroup(input: { roomKey: string; username: string; actor: RequestUser }) {
     const group = await this.assertCanManageMembers(this.normalizeKey(input.roomKey), input.actor);
+    const identifiers = await this.ensureIdentifiersForRoom({
+      id: group.id,
+      key: group.key,
+      groupId: group.groupId,
+      conversationId: group.conversationId,
+    });
 
     const user = await this.resolveUserIdentity(input.username.trim());
     if (!user) {
@@ -382,12 +593,12 @@ export class GroupsService {
 
     const result = await this.getParticipants(group.key, input.actor);
 
-    this.emitGroupUpdate('group_member_removed', { 
-      key: group.key, 
-      groupId: group.groupId,
-      conversationId: group.conversationId,
-      removedUser: user.username 
-    }, group.members.map(m => m.userId));
+    this.emitGroupUpdate('group_member_removed', {
+      key: group.key,
+      groupId: identifiers.groupId,
+      conversationId: identifiers.conversationId,
+      removedUser: user.username,
+    }, group.members.map((m) => m.userId));
 
     return result;
   }

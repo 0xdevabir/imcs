@@ -340,7 +340,8 @@ function ChatListItem(props: ItemProps) {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {props.room.unread > 0 && (
                 <span
-                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${
+                  key={props.room.unread}
+                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white badge-pop ${
                     props.darkMode ? 'bg-[#00a884]' : 'bg-[#25d366]'
                   }`}
                 >

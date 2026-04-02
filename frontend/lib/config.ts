@@ -63,21 +63,30 @@ function isNgrokUrl(value: string) {
 	}
 }
 
+function isLocalBrowser() {
+	if (typeof window === 'undefined') return false;
+	return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+}
+
 function resolveSocketPath() {
 	if (API_URL.startsWith('/')) {
-		return `${API_URL}/socket.io/`;
+		// On localhost, the Next.js dev proxy handles /api/* rewrites and can upgrade
+		// WebSocket connections. On deployed environments (e.g. Vercel) the serverless
+		// proxy cannot upgrade WebSocket — the socket connects directly to the backend,
+		// so the path is just /socket.io/.
+		if (isLocalBrowser()) {
+			return `${API_URL}/socket.io/`;
+		}
+		return '/socket.io/';
 	}
 
 	return '/socket.io/';
 }
 
 function resolveSocketTransports(): Array<'polling' | 'websocket'> {
-	if (typeof window !== 'undefined') {
-		const isLocalBrowser = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-		if (isLocalBrowser && API_URL.startsWith('/')) {
-			// In local https + Next rewrite mode, websocket upgrade is noisy and unreliable.
-			return ['polling'];
-		}
+	if (isLocalBrowser() && API_URL.startsWith('/')) {
+		// In local https + Next rewrite mode, websocket upgrade is noisy and unreliable.
+		return ['polling'];
 	}
 
 	return ['websocket', 'polling'];
@@ -89,11 +98,18 @@ function resolveSocketUrl() {
 		return explicitSocketUrl.replace(/\/+$/, '');
 	}
 
-	// When API_URL is a same-origin proxy path (e.g. /api), route socket.io through
-	// that proxy to avoid mixed-content/TLS mismatches in https local development.
+	// When API_URL is a same-origin proxy path (e.g. /api):
+	// - On localhost: route through the Next.js proxy (same origin)
+	// - On a deployed host (Vercel etc.): the serverless proxy cannot upgrade WebSocket
+	//   connections, so connect the socket directly to the backend URL.
 	if (API_URL.startsWith('/')) {
-		if (typeof window !== 'undefined') {
+		if (isLocalBrowser()) {
 			return window.location.origin;
+		}
+
+		const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
+		if (backendUrl && isAbsoluteHttpUrl(backendUrl)) {
+			return backendUrl.replace(/\/+$/, '');
 		}
 
 		return 'http://localhost:3000';
@@ -101,11 +117,8 @@ function resolveSocketUrl() {
 
 	const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.trim();
 	if (backendUrl && isAbsoluteHttpUrl(backendUrl)) {
-		if (typeof window !== 'undefined') {
-			const isLocalBrowser = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-			if (isLocalBrowser && isNgrokUrl(backendUrl)) {
-				return fallbackApiUrl;
-			}
+		if (typeof window !== 'undefined' && isLocalBrowser() && isNgrokUrl(backendUrl)) {
+			return fallbackApiUrl;
 		}
 		return backendUrl.replace(/\/+$/, '');
 	}

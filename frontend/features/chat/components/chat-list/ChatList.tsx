@@ -284,8 +284,8 @@ function ChatListItem(props: ItemProps) {
             ? 'bg-[#2a3942]'
             : 'bg-slate-100'
           : props.darkMode
-            ? 'hover:bg-[#202c33]'
-            : 'hover:bg-slate-50'
+            ? 'md:hover:bg-[#202c33]'
+            : 'md:hover:bg-slate-50'
       }`}
     >
       <div className="flex items-center gap-3 px-3 py-3">
@@ -353,7 +353,7 @@ function ChatListItem(props: ItemProps) {
                   e.stopPropagation();
                   props.onTogglePin(props.room.key);
                 }}
-                className={`opacity-0 group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
+                className={`opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-150 p-0.5 rounded ${
                   props.isPinned
                     ? props.darkMode
                       ? 'text-amber-500 hover:text-amber-400'

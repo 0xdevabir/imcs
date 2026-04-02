@@ -8,6 +8,9 @@ const bodyFont = Manrope({ subsets: ['latin'], variable: '--font-body' });
 export const metadata: Metadata = {
   title: 'IMCS Frontend',
   description: 'Next.js frontend for IMCS full-stack starter',
+  icons: {
+    icon: '/favicon.svg',
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

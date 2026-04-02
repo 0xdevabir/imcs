@@ -4,7 +4,7 @@ import React, { FormEvent, TouchEvent, useCallback, useEffect, useLayoutEffect, 
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
-import { API_URL, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
+import { API_URL, SOCKET_CONNECT_DELAY_MS, SOCKET_PATH, SOCKET_TRANSPORTS, SOCKET_UPGRADE, SOCKET_URL, authFetch, getAuthToken, clearAuthTokenCookie } from '@/lib/config';
 import { CallUI } from '@/features/calls/components/CallUI';
 import { CallsPanel } from '@/features/calls/components/CallsPanel';
 import { ChatList } from '@/features/chat/components/chat-list/ChatList';
@@ -102,7 +102,7 @@ export default function ChatPage() {
   const [prevSection, setPrevSection] = useState<AppSection | null>(null);
   const [slideDir, setSlideDir] = useState<1 | -1>(1); // 1 = entering from right, -1 = entering from left
   const [mobileSection, setMobileSection] = useState<AppSection>('chats');
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(true);
   const [mobileTransitioning, setMobileTransitioning] = useState(false);
   const [mobilePrevSection, setMobilePrevSection] = useState<AppSection | null>(null);
 
@@ -154,6 +154,7 @@ export default function ChatPage() {
 
   const socketRef = useRef<Socket | null>(null);
   const activeRoomRef = useRef<string>(conversationId ?? 'general');
+  const resolvedConversationIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile | null>(null);
   const ringTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -209,12 +210,19 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!conversationId) return;
+    // Don't re-resolve a conversationId we've already handled — prevents
+    // stale URL param (from window.history.replaceState) from overwriting
+    // an in-progress manual navigation after rooms state changes.
+    if (resolvedConversationIdRef.current === conversationId) return;
     const room = rooms.find((r) => r.groupId === conversationId || r.conversationId === conversationId);
     if (room) {
+      resolvedConversationIdRef.current = conversationId;
       setActiveRoomKey(room.key);
       activeRoomRef.current = room.key;
       socketRef.current?.emit('join_room', { roomKey: room.key });
     }
+    // If room not found yet (rooms still loading), don't mark as resolved —
+    // the effect will retry when rooms updates.
   }, [conversationId, rooms]);
 
   useEffect(() => {
@@ -446,8 +454,32 @@ export default function ChatPage() {
 
   useEffect(() => {
     if (!profile || !activeRoomKey) return;
+
+    const resolvedRoomKey =
+      rooms.find(
+        (room) =>
+          room.key === activeRoomKey ||
+          room.groupId === activeRoomKey ||
+          room.conversationId === activeRoomKey,
+      )?.key ??
+      (activeRoomKey.startsWith('grp_') || activeRoomKey.startsWith('cnv_')
+        ? ''
+        : activeRoomKey);
+
+    if (!resolvedRoomKey) {
+      return;
+    }
+
+    // Skip if the room is an optimistic placeholder (added before server confirms it).
+    // It has no conversationId or groupId yet. Once the API confirms the room,
+    // rooms will update and this effect will re-run with the confirmed room.
+    const roomInState = rooms.find((r) => r.key === resolvedRoomKey);
+    if (roomInState && !roomInState.conversationId && !roomInState.groupId) {
+      return;
+    }
+
     const loadParticipants = async () => {
-      const response = await authFetch(`${API_URL}/groups/${activeRoomKey}/participants`);
+      const response = await authFetch(`${API_URL}/groups/${resolvedRoomKey}/participants`);
       if (!response.ok) { setParticipants([]); setCanManageMembers(false); return; }
       const payload = (await response.json()) as { participants: GroupParticipant[]; canManageMembers: boolean };
       const deduped = dedupeParticipants(payload.participants);
@@ -455,7 +487,7 @@ export default function ChatPage() {
       setCanManageMembers(payload.canManageMembers);
     };
     loadParticipants().catch(() => undefined);
-  }, [profile, activeRoomKey]);
+  }, [profile, activeRoomKey, rooms]);
 
   const cleanupCall = () => {
     if (ringTimeoutRef.current) { clearTimeout(ringTimeoutRef.current); ringTimeoutRef.current = null; }
@@ -628,7 +660,19 @@ export default function ChatPage() {
   useEffect(() => {
     if (!profile) return;
     const token = getAuthToken();
-    const socket = io(SOCKET_URL, { transports: ['websocket'], withCredentials: true, auth: { token } });
+    const socket = io(SOCKET_URL, {
+      path: SOCKET_PATH,
+      transports: SOCKET_TRANSPORTS,
+      upgrade: SOCKET_UPGRADE,
+      withCredentials: true,
+      auth: { token },
+      autoConnect: false,
+    });
+
+    const connectTimer = setTimeout(() => {
+      socket.connect();
+    }, SOCKET_CONNECT_DELAY_MS);
+
     socketRef.current = socket;
     let hasConnectedOnce = false;
     socket.on('connected', () => {
@@ -686,23 +730,30 @@ export default function ChatPage() {
     });
     socket.on('receive_message', (message: ChatMessage) => {
       const isFromMe = Number(message.sender.userId) === Number(profileRef.current?.userId);
-
-      let matchedTempId: string | null = null;
-      if (isFromMe && (message as ChatMessage & { tempId?: string }).tempId) {
-        matchedTempId = (message as ChatMessage & { tempId?: string }).tempId ?? null;
-      } else if (isFromMe) {
-        const entries = Array.from(pendingOptimisticsRef.current.entries());
-        for (const [tempId, optimistic] of entries) {
-          if (optimistic.roomKey === message.roomKey && optimistic.content === message.content) {
-            matchedTempId = tempId;
-            break;
-          }
-        }
-      }
+      const echoedTempId = isFromMe
+        ? (message as ChatMessage & { tempId?: string }).tempId ?? null
+        : null;
 
       setMessages((prev) => {
         if (prev.some((item) => item.id === message.id)) return prev;
-        if (matchedTempId && pendingOptimisticsRef.current.has(matchedTempId)) {
+
+        let matchedTempId: string | null = null;
+        if (echoedTempId && pendingOptimisticsRef.current.has(echoedTempId)) {
+          matchedTempId = echoedTempId;
+        } else if (isFromMe) {
+          // Prefer the newest optimistic entry currently visible in this room.
+          const entries = Array.from(pendingOptimisticsRef.current.entries()).reverse();
+          for (const [tempId, optimistic] of entries) {
+            const optimisticVisible = prev.some((item) => item.id === tempId);
+            if (!optimisticVisible) continue;
+            if (optimistic.roomKey === message.roomKey && optimistic.content === message.content) {
+              matchedTempId = tempId;
+              break;
+            }
+          }
+        }
+
+        if (matchedTempId) {
           pendingOptimisticsRef.current.delete(matchedTempId);
           const idx = prev.findIndex((item) => item.id === matchedTempId);
           if (idx !== -1) {
@@ -712,6 +763,21 @@ export default function ChatPage() {
           }
           resolvedOptimisticsRef.current.add(matchedTempId);
         }
+
+        if (isFromMe) {
+          // Extra guard: replace the latest visible optimistic bubble for this payload.
+          for (let index = prev.length - 1; index >= 0; index -= 1) {
+            const item = prev[index];
+            if (!item.id.startsWith('__temp__')) continue;
+            if (item.roomKey !== message.roomKey) continue;
+            if (item.sender.userId !== message.sender.userId) continue;
+            if (item.content !== message.content) continue;
+            const updated = [...prev];
+            updated[index] = message;
+            return updated;
+          }
+        }
+
         return [...prev, message];
       });
       setRooms((prev) => {
@@ -1037,12 +1103,15 @@ export default function ChatPage() {
       ));
     });
     return () => {
+      clearTimeout(connectTimer);
       cleanupCall();
       Object.values(typingClearTimersRef.current).forEach(clearTimeout);
       typingClearTimersRef.current = {};
       if (typingDebounceRef.current) { clearTimeout(typingDebounceRef.current); typingDebounceRef.current = null; }
       socket.removeAllListeners();
-      socket.disconnect();
+      if (socket.connected) {
+        socket.disconnect();
+      }
       socketRef.current = null;
     };
   }, [profile]);
@@ -1078,8 +1147,8 @@ export default function ChatPage() {
       ? (room.conversationId ?? roomKey)
       : (room?.groupId ?? room?.conversationId ?? roomKey);
 
-    if (router) {
-      router.push(`/chat/${navigateTo}`);
+    if (typeof window !== 'undefined') {
+      window.history.replaceState(null, '', `/chat/${navigateTo}`);
     }
 
     setActiveSection('chats');
@@ -1470,7 +1539,7 @@ export default function ChatPage() {
         const groupData = await response.json();
         if (groupData.conversationId) {
           setRooms(prev => prev.map(r => r.key === roomKey ? { ...r, conversationId: groupData.conversationId, groupId: groupData.groupId ?? r.groupId } : r));
-          router.push(`/chat/${groupData.conversationId}`);
+          window.history.replaceState(null, '', `/chat/${groupData.conversationId}`);
         }
       } else if (response.status === 404) {
         const createResponse = await authFetch(`${API_URL}/groups`, {
@@ -1484,7 +1553,7 @@ export default function ChatPage() {
         const createdData = await createResponse.json();
         if (createdData.conversationId) {
           setRooms(prev => prev.map(r => r.key === roomKey ? { ...r, conversationId: createdData.conversationId, groupId: createdData.groupId ?? r.groupId } : r));
-          router.push(`/chat/${createdData.conversationId}`);
+          window.history.replaceState(null, '', `/chat/${createdData.conversationId}`);
         }
       } else {
         throw new Error('Failed to fetch room');

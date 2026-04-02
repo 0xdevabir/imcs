@@ -273,11 +273,19 @@ function ChatListItem(props: ItemProps) {
 
   const grad = avatarGradient(props.room.name);
   const isGroup = !props.room.key.startsWith('dm_');
+  const openRoom = () => props.onOpen(props.room.key);
 
   return (
-    <button
-      type="button"
-      onClick={() => props.onOpen(props.room.key)}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={openRoom}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openRoom();
+        }
+      }}
       className={`group w-full text-left transition-colors duration-100 ${
         props.active
           ? props.darkMode
@@ -380,6 +388,6 @@ function ChatListItem(props: ItemProps) {
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }

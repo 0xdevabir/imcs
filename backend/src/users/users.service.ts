@@ -16,6 +16,38 @@ export class UsersService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureUser({ username: 'ABIR', password: 'Prototype1!', role: 'admin' });
+    await this.cleanupInvalidMessagingState();
+  }
+
+  private async cleanupInvalidMessagingState() {
+    const contacts = await this.prisma.userContact.findMany({
+      select: { id: true, userId: true, contactId: true },
+    });
+    const selfContactIds = contacts
+      .filter((contact) => contact.userId === contact.contactId)
+      .map((contact) => contact.id);
+    if (selfContactIds.length > 0) {
+      await this.prisma.userContact.deleteMany({
+        where: { id: { in: selfContactIds } },
+      });
+    }
+
+    const dmRooms = await this.prisma.chatRoom.findMany({
+      where: { key: { startsWith: 'dm_' } },
+      include: {
+        members: {
+          select: { userId: true },
+        },
+      },
+    });
+    const invalidDmRoomIds = dmRooms
+      .filter((room) => new Set(room.members.map((member) => member.userId)).size !== 2)
+      .map((room) => room.id);
+    if (invalidDmRoomIds.length > 0) {
+      await this.prisma.chatRoom.deleteMany({
+        where: { id: { in: invalidDmRoomIds } },
+      });
+    }
   }
 
   private toUserRecord(user: { id: number; username: string; password: string; role: 'admin' | 'user' }): UserRecord {
@@ -199,8 +231,10 @@ export class UsersService implements OnModuleInit {
   async getContacts(userId: number): Promise<Array<{ userId: number; username: string; role: 'admin' | 'user' }>> {
     const contacts = await this.prisma.userContact.findMany({ where: { userId }, select: { contactId: true } });
     if (contacts.length === 0) return [];
+    const contactIds = [...new Set(contacts.map((c) => c.contactId).filter((contactId) => contactId !== userId))];
+    if (contactIds.length === 0) return [];
     const users = await this.prisma.user.findMany({
-      where: { id: { in: contacts.map((c) => c.contactId) } },
+      where: { id: { in: contactIds } },
       select: { id: true, username: true, role: true },
       orderBy: { username: 'asc' },
     });

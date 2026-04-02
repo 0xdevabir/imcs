@@ -50,12 +50,13 @@ export function ContactsPanel(props: ContactsPanelProps) {
     authFetch(`${props.apiUrl}/users/contacts`)
       .then((r) => (r.ok ? r.json() : []))
       .then((data: SearchedUser[]) => {
-        setContacts(data);
-        setAddedIds(data.map((u) => u.userId));
+        const filtered = data.filter((u) => u.userId !== props.currentUserId);
+        setContacts(filtered);
+        setAddedIds(filtered.map((u) => u.userId));
         setHasFetchedContacts(true);
       })
       .catch(() => setHasFetchedContacts(true));
-  }, [props.apiUrl]);
+  }, [props.apiUrl, props.currentUserId]);
 
   useEffect(() => {
     if (!hasFetchedContacts || hasBootstrappedDefaults || contacts.length > 0) return;

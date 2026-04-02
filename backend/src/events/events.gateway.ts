@@ -183,7 +183,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized group access');
       return;
     }
@@ -220,7 +220,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized group access');
       return;
     }
@@ -255,7 +255,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized room access');
       return;
     }
@@ -312,7 +312,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       return;
     }
 
@@ -472,7 +472,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       roomKey,
       userId: user.userId,
     });
-    if (!hasAccess && user.role !== 'admin') {
+    if (!hasAccess) {
       client.emit('error', 'Unauthorized room access');
       return;
     }
@@ -498,7 +498,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   }
 
   @SubscribeMessage('join_group_call')
-  handleJoinGroupCall(
+  async handleJoinGroupCall(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { roomKey?: string; callType?: 'voice' | 'video' },
   ) {
@@ -506,6 +506,14 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const roomKey = body?.roomKey?.trim();
     if (!roomKey) return;
     if (!this.isValidRoomKey(roomKey)) return;
+    const hasAccess = await this.eventsService.userHasRoomAccess({
+      roomKey,
+      userId: user.userId,
+    });
+    if (!hasAccess) {
+      client.emit('error', 'Unauthorized room access');
+      return;
+    }
 
     if (!this.callRooms.has(roomKey)) {
       this.callRooms.set(roomKey, new Map());

@@ -1008,6 +1008,10 @@ export default function ChatPage() {
 
   const ensureDirectRoomForTarget = async (targetUserId: number, targetUsername: string) => {
     if (!profile) return null;
+    if (targetUserId === profile.userId) {
+      setStatus('You cannot start a chat with yourself.');
+      return null;
+    }
     const roomKey = `dm_${Math.min(targetUserId, profile.userId)}_${Math.max(targetUserId, profile.userId)}`;
     const exists = rooms.some((r) => r.key === roomKey);
 
@@ -1017,7 +1021,7 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key: roomKey, name: targetUsername, participantUsernames: [targetUsername] }),
       });
-      if (!createResponse.ok) return null;
+      if (!createResponse.ok && createResponse.status !== 409) return null;
 
       const mineResponse = await authFetch(`${API_URL}/groups/mine`);
       if (mineResponse.ok) {
@@ -1123,7 +1127,15 @@ export default function ChatPage() {
 
   const handleContactClick = async (userId: number, username: string) => {
     if (!profile) return;
-    const roomKey = `dm_${Math.min(userId, profile.userId)}_${Math.max(userId, profile.userId)}`;
+    if (userId === profile.userId) {
+      setStatus('You cannot start a chat with yourself.');
+      return;
+    }
+    const roomKey = await ensureDirectRoomForTarget(userId, username);
+    if (!roomKey) {
+      setStatus('Could not open direct chat.');
+      return;
+    }
     
     // Open the room immediately (optimistic update)
     activeRoomRef.current = roomKey;
@@ -1138,20 +1150,6 @@ export default function ChatPage() {
       if (prev.some(r => r.key === roomKey)) return prev;
       return [...prev, { key: roomKey, name: username, unread: 0, lastMessage: 'No messages yet' }];
     });
-    
-    // If room doesn't exist on server, create it (do this after state update)
-    try {
-      const response = await authFetch(`${API_URL}/groups/${roomKey}`);
-      if (response.status === 404) {
-        await authFetch(`${API_URL}/groups`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: roomKey, name: username, participantUsernames: [username] }),
-        });
-      }
-    } catch (err) {
-      console.error('Failed to ensure DM room exists', err);
-    }
     
     socketRef.current?.emit('join_room', { roomKey });
   };

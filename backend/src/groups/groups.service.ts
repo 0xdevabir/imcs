@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
@@ -76,7 +77,7 @@ export class GroupsService {
     return fromMembership;
   }
 
-  private async assertMemberOrAdmin(roomKey: string, user: RequestUser) {
+  private async assertMember(roomKey: string, user: RequestUser) {
     const room = await this.prisma.chatRoom.findUnique({
       where: { key: roomKey },
       include: {
@@ -91,7 +92,7 @@ export class GroupsService {
     }
 
     const isMember = room.members.some((member) => member.userId === user.userId);
-    if (!isMember && user.role !== 'admin') {
+    if (!isMember) {
       throw new ForbiddenException('You are not a member of this group');
     }
 
@@ -110,9 +111,9 @@ export class GroupsService {
       throw new NotFoundException('Group not found');
     }
 
-    const canManage = user.role === 'admin' || room.ownerUserId === user.userId;
+    const canManage = room.ownerUserId === user.userId;
     if (!canManage) {
-      throw new ForbiddenException('Only group owner or admin can manage members');
+      throw new ForbiddenException('Only group owner can manage members');
     }
 
     return room;
@@ -163,6 +164,7 @@ export class GroupsService {
       throw new ConflictException('Group key already exists');
     }
 
+    const isDirectMessageRoom = key.startsWith('dm_');
     const participantUsernames = Array.from(
       new Set((input.participantUsernames ?? []).map((name) => name.trim()).filter(Boolean)),
     );
@@ -179,6 +181,15 @@ export class GroupsService {
         }),
       )
     ).filter((candidate) => candidate.userId !== input.creator.userId);
+
+    if (isDirectMessageRoom) {
+      if (usersToAdd.length !== 1) {
+        throw new BadRequestException('Direct message rooms must have exactly one other participant');
+      }
+      if (usersToAdd[0].userId === input.creator.userId) {
+        throw new BadRequestException('Cannot create a direct message room with yourself');
+      }
+    }
 
     const created = await this.prisma.$transaction(async (tx) => {
       const room = await tx.chatRoom.create({
@@ -252,16 +263,13 @@ export class GroupsService {
 
   async listGroupsForUser(user: RequestUser) {
     const groups = await this.prisma.chatRoom.findMany({
-      where:
-        user.role === 'admin'
-          ? undefined
-          : {
-              members: {
-                some: {
-                  userId: user.userId,
-                },
-              },
-            },
+      where: {
+        members: {
+          some: {
+            userId: user.userId,
+          },
+        },
+      },
       include: {
         members: {
           orderBy: { username: 'asc' },
@@ -289,7 +297,7 @@ export class GroupsService {
   }
 
   async getParticipants(roomKey: string, user: RequestUser) {
-    const group = await this.assertMemberOrAdmin(this.normalizeKey(roomKey), user);
+    const group = await this.assertMember(this.normalizeKey(roomKey), user);
 
     return {
       group: {
@@ -299,12 +307,15 @@ export class GroupsService {
         ownerUsername: group.ownerUsername,
       },
       participants: await Promise.all(group.members.map((member) => this.toParticipantView(group, member))),
-      canManageMembers: user.role === 'admin' || group.ownerUserId === user.userId,
+      canManageMembers: group.ownerUserId === user.userId,
     };
   }
 
   async addUserToGroup(input: { roomKey: string; username: string; actor: RequestUser }) {
     const group = await this.assertCanManageMembers(this.normalizeKey(input.roomKey), input.actor);
+    if (group.key.startsWith('dm_')) {
+      throw new BadRequestException('Cannot add participants to a direct message room');
+    }
 
     const user = await this.resolveUserIdentity(input.username.trim());
     if (!user) {
@@ -351,6 +362,9 @@ export class GroupsService {
 
   async removeUserFromGroup(input: { roomKey: string; username: string; actor: RequestUser }) {
     const group = await this.assertCanManageMembers(this.normalizeKey(input.roomKey), input.actor);
+    if (group.key.startsWith('dm_')) {
+      throw new BadRequestException('Cannot remove participants from a direct message room');
+    }
 
     const user = await this.resolveUserIdentity(input.username.trim());
     if (!user) {

@@ -94,6 +94,9 @@ export default function AdminPage() {
 
   useEffect(() => { loadData().catch(() => setAuthStatus('denied')); }, [loadData]);
   useEffect(() => { if (deleteModal) setTimeout(() => deleteInputRef.current?.focus(), 50); }, [deleteModal]);
+  useEffect(() => {
+    if (fromUsername && toUsername) setAllowComm(true);
+  }, [fromUsername, toUsername]);
 
   const createUser = async (e: FormEvent) => {
     e.preventDefault();

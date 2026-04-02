@@ -2228,8 +2228,8 @@ export default function ChatPage() {
 
         {/* Mobile bottom navigation — Telegram-style, 5 tabs */}
         <nav
-          className={`fixed bottom-0 left-0 right-0 z-20 flex items-stretch border-t md:hidden transition-all duration-200 ${
-            mobileChatOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          className={`fixed bottom-0 left-0 right-0 z-20 items-stretch border-t md:hidden transition-all duration-200 ${
+            mobileChatOpen ? 'hidden' : 'flex'
           } ${
             darkMode ? 'border-white/5 bg-[#202c33]' : 'border-slate-200 bg-white'
           }`}

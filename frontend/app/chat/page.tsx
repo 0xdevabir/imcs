@@ -78,6 +78,41 @@ function summarizeMessage(content: string): string {
   return content;
 }
 
+type CallHistoryApiItem = {
+  id: string;
+  peerUserId: number;
+  peerUsername: string;
+  callType: string;
+  callStatus: string;
+  duration: number;
+  roomKey?: string;
+  createdAt: string;
+};
+
+function normalizeCallType(callType: string): CallHistoryItem['callType'] {
+  return callType === 'voice' ? 'voice' : 'video';
+}
+
+function normalizeCallStatus(callStatus: string): CallHistoryItem['callStatus'] {
+  if (callStatus === 'missed' || callStatus === 'incoming' || callStatus === 'outgoing') {
+    return callStatus;
+  }
+
+  return 'completed';
+}
+
+function toCallHistoryItem(item: CallHistoryApiItem): CallHistoryItem {
+  return {
+    id: item.id,
+    peerUserId: item.peerUserId,
+    peerUsername: item.peerUsername,
+    callType: normalizeCallType(item.callType),
+    callStatus: normalizeCallStatus(item.callStatus),
+    duration: Number(item.duration) || 0,
+    createdAt: item.createdAt,
+  };
+}
+
 export default function ChatPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [status, setStatus] = useState('Checking secure session...');
@@ -827,16 +862,8 @@ export default function ChatPage() {
       try {
         const response = await authFetch(`${API_URL}/call-history`);
         if (response.ok) {
-          const data = await response.json();
-          setCallHistory(data.map((c: { id: string; peerUserId: number; peerUsername: string; callType: string; callStatus: string; duration: number; createdAt: string }) => ({
-            id: c.id,
-            peerUserId: c.peerUserId,
-            peerUsername: c.peerUsername,
-            callType: c.callType as 'voice' | 'video',
-            callStatus: c.callStatus as 'completed' | 'missed' | 'rejected',
-            duration: c.duration,
-            createdAt: c.createdAt,
-          })));
+          const data = (await response.json()) as CallHistoryApiItem[];
+          setCallHistory(Array.isArray(data) ? data.map(toCallHistoryItem) : []);
         }
       } catch (err) {
         console.error('Failed to load call history', err);
@@ -1191,36 +1218,44 @@ export default function ChatPage() {
     if (socketRef.current && roomKey) {
       socketRef.current.emit('leave_group_call', { roomKey });
     }
-    if (callStartedAt && callPeers.length > 0) {
-      const duration = Math.floor((Date.now() - callStartedAt) / 1000);
-      for (const peer of callPeers) {
-        const newCall: CallHistoryItem = {
-          id: `call_${Date.now()}_${peer.userId}`,
-          peerUserId: peer.userId,
-          peerUsername: peer.username,
-          callType: activeCallType,
-          callStatus: duration > 0 ? 'completed' : 'missed',
-          duration,
-          createdAt: new Date().toISOString(),
-        };
-        // Save to database
+    const peersFromParticipants = profile
+      ? participants
+        .filter((participant) => participant.userId !== profile.userId)
+        .map((participant) => ({ userId: participant.userId, username: participant.username, stream: null as MediaStream | null }))
+      : [];
+    const peersForHistory = (callPeers.length > 0 ? callPeers : peersFromParticipants)
+      .filter((peer, index, all) => all.findIndex((candidate) => candidate.userId === peer.userId) === index);
+
+    if (peersForHistory.length > 0) {
+      const duration = callStartedAt ? Math.floor((Date.now() - callStartedAt) / 1000) : 0;
+      const callStatusForSave: 'completed' | 'missed' = duration > 0 ? 'completed' : 'missed';
+      const roomKeyForSave = roomKey ?? activeRoomRef.current;
+
+      for (const peer of peersForHistory) {
         try {
-          await authFetch(`${API_URL}/call-history`, {
+          const response = await authFetch(`${API_URL}/call-history`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               peerUserId: peer.userId,
               peerUsername: peer.username,
               callType: activeCallType,
-              callStatus: duration > 0 ? 'completed' : 'missed',
+              callStatus: callStatusForSave,
               duration,
-              roomKey: roomKey ?? '',
+              roomKey: roomKeyForSave,
             }),
           });
+
+          if (!response.ok) {
+            console.error('Failed to save call history', response.status, response.statusText);
+            continue;
+          }
+
+          const savedEntry = (await response.json()) as CallHistoryApiItem;
+          setCallHistory((prev) => [toCallHistoryItem(savedEntry), ...prev].slice(0, 50));
         } catch (err) {
           console.error('Failed to save call history', err);
         }
-        setCallHistory(prev => [newCall, ...prev].slice(0, 50));
       }
     }
     cleanupCall();

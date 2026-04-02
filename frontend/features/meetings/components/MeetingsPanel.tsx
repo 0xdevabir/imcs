@@ -78,10 +78,18 @@ export function MeetingsPanel({ darkMode }: MeetingsPanelProps) {
   const [joinCode, setJoinCode] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<'all' | 'live' | 'upcoming' | 'ended'>('all');
+  const toastTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000);
   };
 
   const handleStart = () => {

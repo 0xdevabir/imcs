@@ -891,9 +891,8 @@ export default function ChatPage() {
         setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
           const updatedGroups = dedupedMineData
-            .filter(g => nonDMKeys.has(g.key))
+            .filter(g => !g.key.startsWith('dm_'))
             .map((g) => {
               const existing = prev.find((r) => r.key === g.key);
               return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };
@@ -918,9 +917,8 @@ export default function ChatPage() {
         setGroups(dedupedMineData);
         setRooms((prev) => {
           const dmRooms = prev.filter((r) => r.key.startsWith('dm_'));
-          const nonDMKeys = new Set(dedupedMineData.filter(g => !g.key.startsWith('dm_')).map((g) => g.key));
           const updatedGroups = dedupedMineData
-            .filter(g => nonDMKeys.has(g.key))
+            .filter(g => !g.key.startsWith('dm_'))
             .map((g) => {
               const existing = prev.find((r) => r.key === g.key);
               return { key: g.key, groupId: g.groupId, conversationId: g.conversationId, name: g.name || g.key, unread: existing?.unread ?? 0, lastMessage: existing?.lastMessage ?? 'No messages yet', lastAt: existing?.lastAt };

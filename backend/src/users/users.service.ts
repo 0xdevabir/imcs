@@ -256,10 +256,77 @@ export class UsersService implements OnModuleInit {
     if (existing && existing.id !== userId) {
       return { success: false, message: 'Username is already taken.' };
     }
-    const updated = await this.prisma.user.update({
-      where: { id: userId },
-      data: { username: trimmed },
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { username: trimmed },
+      });
+
+      await tx.chatRoomMember.updateMany({
+        where: { userId },
+        data: { username: trimmed },
+      });
+
+      await tx.chatRoom.updateMany({
+        where: { ownerUserId: userId },
+        data: { ownerUsername: trimmed },
+      });
     });
-    return { success: true, username: updated.username };
+
+    return { success: true, username: trimmed };
+  }
+
+  async getProfilePicture(userId: number): Promise<string | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { profilePicture: true },
+    });
+    return user?.profilePicture ?? null;
+  }
+
+  async updateProfilePicture(userId: number, fileName: string | null): Promise<string | null> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { profilePicture: fileName },
+    });
+    return user.profilePicture;
+  }
+
+  async getUserWithProfilePicture(userId: number): Promise<{
+    userId: number;
+    username: string;
+    role: 'admin' | 'user';
+    profilePicture: string | null;
+  } | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, username: true, role: true, profilePicture: true },
+    });
+    if (!user) return null;
+    return {
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      profilePicture: user.profilePicture,
+    };
+  }
+
+  async getAllUsersWithProfilePictures(): Promise<Array<{
+    userId: number;
+    username: string;
+    role: 'admin' | 'user';
+    profilePicture: string | null;
+  }>> {
+    const users = await this.prisma.user.findMany({
+      select: { id: true, username: true, role: true, profilePicture: true },
+      orderBy: { id: 'asc' },
+    });
+    return users.map((user) => ({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      profilePicture: user.profilePicture,
+    }));
   }
 }

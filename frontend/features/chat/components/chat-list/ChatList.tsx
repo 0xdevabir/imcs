@@ -114,7 +114,7 @@ export function ChatList(props: ChatListProps) {
             value={props.searchQuery}
             onChange={(e) => props.onSearchQueryChange(e.target.value)}
             placeholder="Search or start a new chat"
-            className={`flex-1 bg-transparent text-sm outline-none ${
+            className={`flex-1 bg-transparent text-base md:text-sm outline-none ${
               props.darkMode
                 ? 'text-slate-200 placeholder:text-slate-500'
                 : 'text-slate-800 placeholder:text-slate-400'
@@ -340,7 +340,8 @@ function ChatListItem(props: ItemProps) {
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {props.room.unread > 0 && (
                 <span
-                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white ${
+                  key={props.room.unread}
+                  className={`min-w-[20px] h-5 flex items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white badge-pop ${
                     props.darkMode ? 'bg-[#00a884]' : 'bg-[#25d366]'
                   }`}
                 >

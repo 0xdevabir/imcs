@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { AppSection, Profile, UserStatus } from '@/features/chat/types';
 import { avatarGradient } from '@/lib/avatar';
 
@@ -149,11 +150,22 @@ export function Sidebar(props: SidebarProps) {
           title={`${props.profile.username} — click to open settings`}
           className="relative w-10 h-10 rounded-full flex items-center justify-center transition-all duration-150 hover:opacity-80 focus:outline-none"
         >
-          <div
-            className={`w-10 h-10 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white`}
-          >
-            {props.profile.username.charAt(0).toUpperCase()}
-          </div>
+          {props.profile.profilePicture ? (
+            <Image
+              src={props.profile.profilePicture}
+              alt={props.profile.username}
+              width={40}
+              height={40}
+              className="w-10 h-10 rounded-full object-cover"
+              unoptimized
+            />
+          ) : (
+            <div
+              className={`w-10 h-10 rounded-full bg-gradient-to-br ${grad} flex items-center justify-center text-sm font-bold text-white`}
+            >
+              {props.profile.username.charAt(0).toUpperCase()}
+            </div>
+          )}
           <span
             className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 ${
               props.darkMode ? 'border-[#111b21]' : 'border-[#f0f2f5]'

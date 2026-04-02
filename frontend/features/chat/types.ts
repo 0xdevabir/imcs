@@ -4,6 +4,7 @@ export type Profile = {
   userId: number;
   username: string;
   role: 'admin' | 'user';
+  profilePicture: string | null;
 };
 
 export type Receipt = {
@@ -36,16 +37,19 @@ export type ChatMessage = {
   sender: {
     userId: number;
     username: string;
+    profilePicture?: string | null;
   };
   content: string;
   isEdited?: boolean;
   isDeleted?: boolean;
+  failed?: boolean;
   createdAt: string;
   deliveredAt?: string | null;
   readAt?: string | null;
   receipts: Receipt[];
   reactions?: MessageReaction[];
   replyTo?: ReplyPreview | null;
+  tempId?: string;
 };
 
 export type UserStatus = 'available' | 'dnd' | 'invisible';
@@ -54,6 +58,7 @@ export type OnlineUser = {
   userId: number;
   username: string;
   status: UserStatus;
+  profilePicture: string | null;
 };
 
 export type GroupParticipant = {
@@ -65,12 +70,16 @@ export type GroupParticipant = {
 
 export type GroupSummary = {
   key: string;
+  groupId?: string | null;
+  conversationId?: string | null;
   name: string;
   participantCount: number;
 };
 
 export type RoomItem = {
   key: string;
+  groupId?: string | null;
+  conversationId?: string | null;
   name: string;
   unread: number;
   lastMessage: string;
@@ -103,6 +112,7 @@ export type SearchedUser = {
   userId: number;
   username: string;
   role: 'admin' | 'user';
+  profilePicture?: string | null;
 };
 
 export type AttachmentPayload = {
@@ -119,7 +129,7 @@ export type CallHistoryItem = {
   peerUserId: number;
   peerUsername: string;
   callType: 'voice' | 'video';
-  callStatus: 'missed' | 'completed' | 'incoming' | 'outgoing';
+  callStatus: 'missed' | 'completed' | 'incoming' | 'outgoing' | 'rejected';
   duration: number;
   createdAt: string;
 };

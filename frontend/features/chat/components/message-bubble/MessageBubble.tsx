@@ -32,6 +32,7 @@ interface MessageBubbleProps {
   message: ChatMessage;
   profile: Profile;
   darkMode: boolean;
+  roomKey: string;
   participants: GroupParticipant[];
   onReact: (messageId: string, emoji: string) => void;
   onReply: (message: ChatMessage) => void;
@@ -47,6 +48,7 @@ function areEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
     prev.message === next.message &&
     prev.profile.userId === next.profile.userId &&
     prev.darkMode === next.darkMode &&
+    prev.roomKey === next.roomKey &&
     prev.participants === next.participants &&
     prev.onlineUsers === next.onlineUsers &&
     prev.onReact === next.onReact &&
@@ -58,7 +60,7 @@ function areEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
 
 export const MessageBubble = React.memo(function MessageBubble(props: MessageBubbleProps) {
   const isMine = props.message.sender.userId === props.profile.userId;
-  const isGroup = props.participants.length > 2;
+  const isGroup = !props.roomKey.startsWith('dm_');
   const grad = avatarGradient(props.message.sender.username);
 
   const isSenderOnline = useMemo(() => {

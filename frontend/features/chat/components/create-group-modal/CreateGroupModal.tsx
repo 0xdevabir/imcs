@@ -56,6 +56,13 @@ export function CreateGroupModal({ darkMode, apiUrl, currentUserId, onClose, onC
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
+  // Clear pending debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   const runSearch = useCallback(async (q: string) => {
     if (q.trim().length < 1) { setSearchResults([]); setDropdownOpen(false); return; }
     setIsSearching(true);

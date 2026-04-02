@@ -206,6 +206,7 @@ export const ChatWindow = React.memo(function ChatWindow(props: ChatWindowProps)
                   message={row.message}
                   profile={props.profile}
                   darkMode={props.darkMode}
+                  roomKey={props.roomKey}
                   participants={props.participants}
                   onReact={props.onReact}
                   onReply={props.onReply}

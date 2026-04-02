@@ -59,6 +59,12 @@ export function ContactsPanel(props: ContactsPanelProps) {
   }, [props.apiUrl]);
 
   useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!hasFetchedContacts || hasBootstrappedDefaults || contacts.length > 0) return;
     const defaults = props.allUsers.filter((u) => u.userId !== props.currentUserId);
     if (defaults.length === 0) return;
